@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Text Reader using Google Cloud Text-to-speech</title>
+    <script src="http://libs.baidu.com/jquery/2.1.4/jquery.min.js"></script>
+    <style type="text/css">
+    #t{
+        width: 70%;
+        height: 300px;
+    }
+    </style>
+    <script type="text/javascript">
+        const serverPrefix = "./";  //Always ends it with a "/"
+        var jsonQueue = [];
+        var audioQueue = [];
+        var rate = 1;
+        var playerPointer = -1;
+        var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        var abQueue = [];
+        var staticAudio = [];
+
+        function isChinese(str) {
+            var patrn = /[\u4E00-\u9FA5]|[\uFE30-\uFFA0]/gi;
+            if (!patrn.exec(str)) {
+                return false;
+            } else {
+                return true;
+            }
+        }
+
+        function insertText(str) {
+            let obj = $("#t").get(0);
+            if (document.selection) {
+                var sel = document.selection.createRange();
+                sel.text = str;
+            } else if (typeof obj.selectionStart === 'number' && typeof obj.selectionEnd === 'number') {
+                var startPos = obj.selectionStart,
+                    endPos = obj.selectionEnd,
+                    cursorPos = startPos,
+                    tmpStr = obj.value;
+                obj.value = tmpStr.substring(0, startPos) + str + tmpStr.substring(endPos, tmpStr.length);
+                cursorPos += str.length;
+                obj.selectionStart = obj.selectionEnd = cursorPos;
+            } else {
+                obj.value += str;
+            }
+            $("#t").focus();
+        }
+
+        function wrapText(openTag, closeTag) {
+            var textArea = $('#t');
+            var len = textArea.val().length;
+            var start = textArea[0].selectionStart;
+            var end = textArea[0].selectionEnd;
+            var selectedText = textArea.val().substring(start, end);
+            var replacement = openTag + selectedText + closeTag;
+            textArea.val(textArea.val().substring(0, start) + replacement + textArea.val().substring(end, len));
+            $("#t").focus();
+        }
+
+        //<-- audiobuffer-to-wav.js START
+        function audioBufferToWav(buffer, opt) {
+            opt = opt || {}
+
+            var numChannels = buffer.numberOfChannels
+            var sampleRate = buffer.sampleRate
+            var format = opt.float32 ? 3 : 1
+            var bitDepth = format === 3 ? 32 : 16
+
+            var result
+            if (numChannels === 2) {
+                result = interleave(buffer.getChannelData(0), buffer.getChannelData(1))
+            } else {
+                result = buffer.getChannelData(0)
+            }
+
+            return encodeWAV(result, format, sampleRate, numChannels, bitDepth)
+        }
+        function encodeWAV(samples, format, sampleRate, numChannels, bitDepth) {
+            var bytesPerSample = bitDepth / 8
+            var blockAlign = numChannels * bytesPerSample
+
+            var buffer = new ArrayBuffer(44 + samples.length * bytesPerSample)
+            var view = new DataView(buffer)
+
+            /* RIFF identifier */
+            writeString(view, 0, 'RIFF')
+            /* RIFF chunk length */
+            view.setUint32(4, 36 + samples.length * bytesPerSample, true)
+            /* RIFF type */
+            writeString(view, 8, 'WAVE')
+            /* format chunk identifier */
+            writeString(view, 12, 'fmt ')
+            /* format chunk length */
+            view.setUint32(16, 16, true)
+            /* sample format (raw) */
+            view.setUint16(20, format, true)
+            /* channel count */
+            view.setUint16(22, numChannels, true)
+            /* sample rate */
+            view.setUint32(24, sampleRate, true)
+            /* byte rate (sample rate * block align) */
+            view.setUint32(28, sampleRate * blockAlign, true)
+            /* block align (channel count * bytes per sample) */
+            view.setUint16(32, blockAlign, true)
+            /* bits per sample */
+            view.setUint16(34, bitDepth, true)
+            /* data chunk identifier */
+            writeString(view, 36, 'data')
+            /* data chunk length */
+            view.setUint32(40, samples.length * bytesPerSample, true)
+            if (format === 1) { // Raw PCM
+                floatTo16BitPCM(view, 44, samples)
+            } else {
+                writeFloat32(view, 44, samples)
+            }
+
+            return buffer
+        }
+        function interleave(inputL, inputR) {
+            var length = inputL.length + inputR.length
+            var result = new Float32Array(length)
+
+            var index = 0
+            var inputIndex = 0
+
+            while (index < length) {
+                result[index++] = inputL[inputIndex]
+                result[index++] = inputR[inputIndex]
+                inputIndex++
+            }
+            return result
+        }
+        function writeFloat32(output, offset, input) {
+            for (var i = 0; i < input.length; i++ , offset += 4) {
+                output.setFloat32(offset, input[i], true)
+            }
+        }
+        function floatTo16BitPCM(output, offset, input) {
+            for (var i = 0; i < input.length; i++ , offset += 2) {
+                var s = Math.max(-1, Math.min(1, input[i]))
+                output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+            }
+        }
+        function writeString(view, offset, string) {
+            for (var i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i))
+            }
+        }
+        //audiobuffer-to-wav.js END-->
+
+        function process() {
+            // if (audioQueue.length <= 0) {
+
+            console.log("Start processing input... -->");
+            var defaultVoice = $("body > #voice").val();
+            var paras = $("#t").val().split("\n");
+            rate = $("#speed").val();
+            console.log("Voice:" + defaultVoice);
+            console.log("Paragraphs:" + paras);
+            console.log("Rate: " + rate);
+
+            // jsonQueue=[];
+            // audioQueue=[];
+            let repeatStart = -1;
+            let repeatCount = 1;
+            let tempVoice = "";
+
+            for (let i = 0; i < paras.length; i++) {
+                if (paras[i].trim() != "") //not blank
+                {
+                    if (/(<voice[^>])([\s\S]*?)(<\/voice>)/.test(paras[i])) {
+                        console.log("Line " + i + " has a voice tag.");
+                        $("<xml>" + paras[i] + "</xml>").find('voice').each(function () {
+                            console.log("The text:" + $(this).text() + " will be read by voice " + $(this).attr(
+                                "name"));
+                            makeJSON(paras[i].replace(/(<voice[\s\S]*?>)([\s\S]*?)(<\/voice>)/, "$2"), $(this).attr("name"));
+                        });
+                    } else if (/(<voice[^>])/.test(paras[i]) && paras[i].indexOf("</voice>") == -1) {
+                        $("<xml>" + paras[i] + "</voice></xml>").find('voice').each(function () {
+                            console.log("A voice tag for multi-line defines voice " + $(this).attr("name"));
+                            tempVoice = $(this).attr("name");
+                        });
+                    } else if (paras[i].indexOf("</voice>") != -1) {
+                        tempVoice = "";
+                    } else if (isChinese(paras[i])) {
+                        if (defaultVoice.indexOf("cmn-CN") == -1) {
+                            makeJSON(paras[i], $("#zh_CN > option:nth-child(3)").val());
+                            console.log("Line " + i + " will be read by voice " + $("#zh_CN > option:nth-child(3)")
+                                .val());
+                        } else {
+                            makeJSON(paras[i], defaultVoice);
+                            console.log(paras[i] + " will be read by defaultVoice.");
+                        }
+                    } else if (/(<audiofile src[^>])/.test(paras[i])) {
+                        $("<xml>" + paras[i] + "</xml>").find('audiofile').each(function () {
+                            let t = $(this).attr("src");
+                            console.log("An audio file: " + t + " will be played.");
+                            makeJSON(t.replace(".mp3", ""), -1);
+                        });
+                    } else if (/(<repeat[^>])([\s\S]*?)(<\/repeat>)/.test(paras[i])) {
+                        $("<xml>" + paras[i] + "</xml>").find('repeat').each(function () {
+                            console.log("The text:" + $(this).text() + " will be read  " + $(this).attr("count") + " times");
+                            paras[i] = "<seq><media repeatCount='" + $(this).attr("count") + "'><speak>" + paras[i].replace(/(<repeat[\s\S]*?>)([\s\S]*?)(<\/repeat>)/, "$2") + "</speak></media></seq>";
+                            i--; //Just in case there is a voice tag inside, don't makeJSON now and let the line be processed again.
+                        });
+                    } else if (/(<repeat[^>])/.test(paras[i]) && paras[i].indexOf("</repeat>") == -1) {
+                        $("<xml>" + paras[i] + "</repeat></xml>").find('repeat').each(function () {
+                            repeatCount = $(this).attr("count");
+                        });
+                        repeatStart = i;
+                        paras[i] = "";
+                        console.log("Found a start of a repeat of " + repeatCount + " times at line " + i);
+                    } else if (paras[i].indexOf("</repeat>") != -1) {
+                        console.log('Found the end of a repeat at line ' + i);
+                        if (repeatStart > -1) i = repeatStart;
+                        if (repeatCount > 2) {
+                            repeatCount--;
+                            console.log("Repeating the " + repeatCount + "time");
+                        } else {
+                            paras[i] = "";
+                            repeatStart = -1;
+                            repeatCount = 1;
+                        }
+                    } else {
+                        if (tempVoice == "") {
+                            makeJSON(paras[i], defaultVoice);
+                            console.log(paras[i] + " will be read by defaultVoice.");
+                        } else {
+                            makeJSON(paras[i], tempVoice);
+                            console.log(paras[i] + " will be read by " + tempVoice + ".");
+                        }
+                    }
+
+                }
+            }
+
+            console.log("Now the jsonQueue looks like:" + jsonQueue);
+            console.log("<-- Process complete.");
+            optimizeJSON();
+            sendReq();
+            // } else {
+            // console.log("Audio already retrieved. Start playing.");
+            // playerPointer=-1;
+            // }
+        }
+
+        function makeJSON(text, voice) {
+            if (voice == -1) {
+                var json = "{ \"audio\" : \"" + text + "\" }";
+            } else if (text.trim().replace(/<break time='([0-9 ])(s|ms)' \/>/, "") == "" && text.indexOf("<break time=") != -1) {  //Synth single-lined <break> with a less expensive voice
+                var json = "{ \"input\": { \"ssml\" : \"<speak> " + text + " </speak>\" }, \"voice\": {\"name\": \"" +
+                    "en-US-Standard-B" + "\"}, \"audioConfig\":{\"audioEncoding\": \"OGG\", \"speakingRate\": " + rate + "} }";
+            } else {
+                text = text.replace(/"/g, "'");
+                text = text.replace(/&/g, " and ");
+                text = text.replace(/	/g, " ");
+                var json = "{ \"input\": { \"ssml\" : \"<speak> " + text + " </speak>\" }, \"voice\": {\"name\": \"" +
+                    voice + "\"}, \"audioConfig\":{\"audioEncoding\": \"OGG\", \"speakingRate\": " + rate + "} }";
+            }
+            console.log("JSON:" + json);
+            jsonQueue.push(json);
+        }
+
+        function optimizeJSON() {
+            let usedVoices = [];
+            for (let i = 0; i < jsonQueue.length; i++) {
+                if (jsonQueue[i].indexOf("ssml") != -1) {
+                    // console.log("Optimizing line " + i);
+                    let thisjson = JSON.parse(jsonQueue[i]);
+                    let thisvoice = thisjson.voice.name;
+                    usedVoices.push(thisvoice);
+                    if (i > 0) {
+                        if (thisvoice == usedVoices[i - 1]) {
+                            let newssml = jsonQueue[i - 1].substring(0, jsonQueue[i - 1].indexOf("</speak>\"")) +
+                                jsonQueue[i].substring(jsonQueue[i].indexOf("\"<speak>") + 8);
+                            jsonQueue[i] = newssml;
+                            jsonQueue.splice(i - 1, 1);
+                            usedVoices.splice(i - 1, 1);
+                            i--;
+                        }
+                    }
+                } else {
+                    usedVoices.push("");
+                }
+            }
+
+            for (let i = 0; i < jsonQueue.length; i++) {
+                if (jsonQueue[i].indexOf("ssml") != -1) {
+                    let thisjson = JSON.parse(jsonQueue[i]);
+                    let thistext = thisjson.input.ssml;
+                    thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
+                    jsonQueue[i] = JSON.stringify(thisjson);
+                }
+            }
+
+            /*             //Merge single-lined <break> to the nearby line.
+                        for (let i = 0; i < jsonQueue.length; i++) {
+                            if (jsonQueue[i].indexOf("ssml") != -1 && i < jsonQueue.length - 1) {
+                                let thisjson = JSON.parse(jsonQueue[i]);
+                                let thistext = thisjson.input.ssml;
+                                let nextjson = JSON.parse(jsonQueue[i + 1])
+                                let nexttext = nextjson.input.ssml;
+                                if (thistext.trim().replace(/<break time='([0-9 ])(s|ms)' \/>/, "") == "" && thistext.indexOf("<break time=") != -1) {
+                                    nextjson.input.ssml = thistext + nexttext;
+                                    jsonQueue[i + 1] = JSON.stringify(nextjson);
+                                    jsonQueue.splice(i, 1);
+                                    i--;
+                                }
+                            }
+                        }
+             */
+
+            for (let i = 0; i < jsonQueue.length; i++) {  //Rewrite JSON to reuse audio
+                if (jsonQueue[i].indexOf("ssml") != -1) {
+                    for (let j = 0; j < jsonQueue.length; j++) {
+                        if (jsonQueue[i] == jsonQueue[j] && i > j) {
+                            jsonQueue[i] = "{ \"repeatLine\" : \"" + j + "\" }";
+                        }
+                    }
+                }
+            }
+
+
+            console.log("jsonQueue optimized. Now JSON queue looks like: " + jsonQueue);
+            // console.log("Used voices: " + usedVoices);
+        }
+
+        async function sendReq() {
+            if (jsonQueue.length > 0) {
+                console.log("Sending requests to the server.");
+                try {
+                    for (let i = 0; i < jsonQueue.length; i++) {
+                        console.log("Requesting line " + i + "...");
+                        if (jsonQueue[i].indexOf("\"audio\"") != -1) {
+                            console.log("Using prefetched static audio.");
+                            audioQueue.push(staticAudio[0]); //there is only one staticAudio for now ;)
+                        } else if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
+                            let thisjson = JSON.parse(jsonQueue[i]);
+                            audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
+                            console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
+                        } else {
+                            const res = await fetch(serverPrefix + 'speak.php', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: jsonQueue[i]
+                            }); //Returns a Response obj, needs func to convert to text.
+                            if (res.ok) {
+                                const restext = await res.text();
+                                if (restext.indexOf("data:audio") != -1) {
+                                    console.log("Audio #" + i + " received.");
+                                    audioQueue.push(restext);
+                                } else {
+                                    console.log("Something else received for Line #" + i + ": " + restext);
+                                    throw new Error("Line #" + i + " may not have been correctly synthesized: " + restext);
+                                    audioQueue.push("");
+                                }
+                            } else {
+                                throw new Error('HTTP error, status = ' + res.status);
+                                console.log("HTTP Error " + res.status + " when synthing line #" + i);
+                                audioQueue.push("");
+                            }
+                        }
+                    }
+                    console.log("All audio has been retrieved.");
+                    $("#saveit").removeAttr("disabled");  //saveit button state change
+                } catch (error) {
+                    console.log("Some lines were not correctly synthed. Retrying.");
+                    try {
+                        for (let i = 0; i < jsonQueue.length; i++) {
+                            if (audioQueue[i] == "") {
+                                console.log("Requesting line " + i + "...");
+                                if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
+                                    let thisjson = JSON.parse(jsonQueue[i]);
+                                    audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
+                                    console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
+                                } else {
+                                    const res = await fetch(serverPrefix + 'speak.php', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json'
+                                        },
+                                        body: jsonQueue[i]
+                                    }); //Returns a Response obj, needs func to convert to text.
+                                    if (res.ok) {
+                                        const restext = await res.text();
+                                        if (restext.indexOf("data:audio") != -1) {
+                                            console.log("Audio #" + i + " received.");
+                                            audioQueue[i] = restext;
+                                        } else {
+                                            console.log("Something else received for Line #" + i + ": " + restext);
+                                            throw new Error();
+                                        }
+                                    } else {
+                                        throw new Error();
+                                        console.log("HTTP Error " + res.status + " for line #" + i);
+                                    }
+                                }
+                            }
+                        }
+                        console.log("All audio has been retrieved.");
+                        $("#saveit").removeAttr("disabled");  //saveit button state change                        
+                    } catch (error) {
+                        alert("Some lines were not correctly synthed. Refresh the page and try again.");
+                    }
+                }
+            } else {
+                alert("Type in something first!");
+            }
+        }
+
+        async function getVoices() {
+            console.log("Requesting voice list...");
+            fetch(serverPrefix + 'list_voices.php', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => {
+                if (!res.ok) {
+                    throw new Error('HTTP error, status = ' + res.status);
+                } else {
+                    return res.json();
+                }
+            }).then(resjson => {
+                console.log("Voice list received: " + resjson);
+
+                ssmlVoiceGender = ['SSML_VOICE_GENDER_UNSPECIFIED', 'MALE', 'FEMALE', 'NEUTRAL'];
+
+                for (const key in resjson.voices) {
+                    if (resjson.voices[key].lang.indexOf("en-US") != -1) {
+                        if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
+                            $("#en_US").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
+                                Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
+                                    "en-US-Wavenet-", "") + " </option>");
+                        }
+                    } else if (resjson.voices[key].lang.indexOf("en-GB") != -1) {
+                        if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
+                            $("#en_GB").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
+                                Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
+                                    "en-GB-Wavenet-", "") + " </option>");
+                        }
+                    } else if (resjson.voices[key].lang.indexOf("cmn-CN") != -1) {
+                        if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
+                            $("#zh_CN").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
+                                Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
+                                    "cmn-CN-Wavenet-", "") + " </option>");
+                        }
+                    }
+                }
+                $("#en_US > option:nth-child(4)").attr("selected", "true");
+                //Submit button state change
+                $("#sub").removeAttr("disabled");
+
+            }).catch(reason => alert("An error occured when retrieving the voice list: \n" + reason));
+
+        }
+
+        async function getStaticAudio() {
+            let json = "{ \"audio\" : \"dingdong\" }";
+            try {
+                const res = await fetch(serverPrefix + 'speak.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: json
+                }); //Returns a Response obj, needs func to convert to text.
+                if (res.ok) {
+                    const restext = await res.text();
+                    if (restext.indexOf("data:audio") != -1) {
+                        console.log("Static audio received.");
+                        staticAudio.push(restext);
+                    } else {
+                        throw new Error("Unexpected response from the server: " + restext);
+                    }
+                } else {
+                    throw new Error('HTTP error, status = ' + res.status);
+                }
+            } catch (error) {
+                alert("An error occured when retrieving static audio: \n" + error);
+            }
+        }
+
+        async function joinAudio() {
+            var ttlLength = 0;
+            var sr;
+            if (audioQueue.length <= 0) {
+                alert("Speak it at least once first!");
+                reject("No audio received yet.");
+            } else {
+                console.log("Begin Join Audio -->");
+                for (let i = 0; i < audioQueue.length; i++) {
+                    console.log("Process Audio #" + i);
+                    await fetch(audioQueue[i]).then(function (response) {
+                        if (!response.ok) {
+                            throw new Error('HTTP error, status = ' + response.status);
+                        } else {
+                            return response.arrayBuffer();
+                        }
+                    }).then(async function (response) {
+                        await audioCtx.decodeAudioData(response).then(function (buffer) {
+                            var b = buffer.getChannelData(0);
+                            //console.log (b.numberOfChannels);
+                            abQueue.push(b);
+                            ttlLength += b.length;
+                            sr = buffer.sampleRate;
+                        });
+
+                    });
+
+                }
+                console.log("Total length: " + ttlLength);
+                let resultBuffer = audioCtx.createBuffer(1, ttlLength, sr);
+                let rbData = resultBuffer.getChannelData(0);
+
+                var j = 0;
+                for (let i = 0; i < abQueue.length; i++) {
+                    await rbData.set(abQueue[i], j);
+                    j += abQueue[i].length;
+                }
+
+                console.log("<-- End of Join Audio");
+
+                return resultBuffer;
+            }
+        }
+
+        async function saveAudio() {
+            if (audioQueue.length <= 0) {
+                alert("Speak it at least once first!");
+            } else {
+                try {
+                    await joinAudio().then(function (b) {
+                        console.log(b);
+
+                        let wav = audioBufferToWav(b);
+                        var blob = new Blob([new DataView(wav)], {
+                            type: "audio/wav"
+                        });
+                        console.log(blob);
+                        console.log("Triggering download...");
+                        let a = document.createElement('a');
+                        a.download = new Date().getTime().toString() + '.wav';
+                        let dl = window.URL.createObjectURL(blob);
+                        a.href = dl;
+                        $("body").append(a);
+                        a.click();
+                        $(a).remove();
+                        URL.revokeObjectURL(dl);
+                    });
+                } catch (error) {
+                    alert("An error occured when exporting the audio: " + error);
+                } finally {
+                    $("#saveit").removeAttr("disabled");  //saveit button state change
+                }
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <h1>Text Reader using Google Cloud Text-to-speech</h1><br>
+    Default voice: <select id="voice">
+        <optgroup label="US English" id="en_US">
+            <!-- <option value="VW Paul" selected>Paul</option> -->
+        </optgroup>
+        <optgroup label="British English" id="en_GB">
+            <!-- <option value="IVONA Brian22">Brian</option>  -->
+        </optgroup>
+        <optgroup label="Mandarin Chinese" id="zh_CN">
+            <!-- <option value="VW Hui">Hui</option><option value="VW Wang">Wang</option> -->
+        </optgroup>
+    </select>
+    &nbsp;&nbsp; Speed: <input type="range" id="speed" min="0.25" max="4.0" step="0.01"> <input type="text"
+        id="speedtxt">
+    <br>
+    <button id="insertAudio">Insert SE</button> <button id="insertPause">Insert Pause</button>
+    <div id="showOnSelect"><button id="insertRepeat">Insert repeat</button> <button id="changevoice">Change
+            voice</button>
+        <button id="dlgmaker">Dialog Maker</button> <button id="insertEmph">Insert emphasis</button> <button
+            id="insertProsody">Insert prosody</button></div> <br>
+    <textarea id="t" autofocus required spellcheck="false" placeholder="Enter text you wish spoken here."></textarea>
+    <br>
+    <button id="sub">Speak it!</button> <button id="saveit">Save audio to file</button>
+    <br>
+    <div id="choosevoicedlg" style="display: none;"><b>Choose a voice: </b>
+        <div id="dlgvoicelist0"></div> <button id="dlgok0">OK</button> <button id="dlgcancel0">Cancel</button>
+    </div>
+    <div id="dlgmakerdlg" style="display: none;">Choose a voice for each character: <br>
+        <div id="charlist"></div><button id="dlgok1">OK</button> <button id="dlgcancel1">Cancel</button>
+    </div>
+    <div id="emphasisdlg" style="display: none;">Choose an emphasis level: <select id="emphlvl">
+            <option value="strong">Strong</option>
+            <option value="moderate">Moderate</option>
+            <option value="none" selected>None</option>
+            <option value="reduced">Reduced</option>
+        </select><br><button id="dlgok2">OK</button> <button id="dlgcancel2">Cancel</button></div>
+    <div id="prosodydlg" style="display: none;">Set prosody:<br>Pitch:<input type="range" id="pitch" min="-8" max="8"
+            value="0"> <input type="number" id="pitchtxt" max="8" min="-8" step="1">semitone <br> Rate: <input
+            type="range" id="rate" min="0" max="500" value="100" step="10"> <input type="number" id="ratetxt" min="0"
+            max="500" step="10">%<br><button id="dlgok3">OK</button> <button id="dlgcancel3">Cancel</button></div>
+
+    <script type="text/javascript">
+        $(document).ready(function () {
+            getVoices();
+            getStaticAudio();
+            //Submit button state change
+            $("#sub").attr("disabled", "true");
+            $("#sub").click(function () {
+                if ($("#t").val().length <= 0) {
+                    alert("Type in something first!");
+                    return;
+                }
+                if (audioQueue.length <= 0) {
+
+                    //Submit button state change
+                    $("#sub").attr("disabled", "true");
+                    $("#sub").text("Please wait...");
+
+                    process();
+                } else {
+                    if (player.ended && playerPointer >= audioQueue.length - 1) {
+                        console.log("Audio already retrieved. Start playing.");
+                        playerPointer = -1;
+                        // Play audioQueue directly.
+
+                        //Submit button state change
+                        $("#sub").text("Pause");
+
+                    } else {
+                        if (!player.ended && player.paused) {
+                            player.play();
+
+                            //Submit button state change
+                            $("#sub").text("Pause");
+                        } else if (!player.ended && !player.paused) {
+                            player.pause();
+
+                            //Submit button state change
+                            $("#sub").text("Resume");
+                        }
+                    }
+                }
+            });
+            $("#speed").val("1.0");
+
+            $("#showOnSelect").css("display", "none");
+
+            const player = new Audio();
+            player.loop = false;
+
+            player.addEventListener("ended", () => {
+                if (playerPointer >= audioQueue.length - 1) {
+                    if (audioQueue.length > 0) {
+                        //Submit button state change
+                        $("#sub").text("Replay");
+                    } else {
+                        //Submit button state change
+                        $("#sub").text("Speak it!");
+                    }
+                }
+            });
+
+            var docWatch = setInterval(function () {
+                if (audioQueue.length > 0 && playerPointer < audioQueue.length - 1) //To make the audio start playing, audioQueue has to have sth, and playerPointer is -1.
+                {
+                    if (player.ended || (!player.ended && playerPointer == -1)) {
+                        playerPointer++;
+                        player.src = audioQueue[playerPointer];
+                        console.log("Playing Audio #" + playerPointer);
+                        player.play();
+
+                        //Submit button state change
+                        $("#sub").removeAttr("disabled");
+                        $("#sub").text("Pause");
+                    }
+                }
+
+                if (document.activeElement.id != "speedtxt") {
+                    $("#speedtxt").val($("#speed").val());
+                }
+                if (document.activeElement.id != "ratetxt") { //for the prosody dlg
+                    $("#ratetxt").val($("#rate").val());
+                }
+                if (document.activeElement.id != "pitchtxt") { //for the prosody dlg
+                    $("#pitchtxt").val($("#pitch").val());
+                }
+
+                if ($("#t")[0].selectionStart != $("#t").get(0).selectionEnd) {
+                    $("#showOnSelect").css("display", "inline");
+                } else {
+                    $("#showOnSelect").css("display", "none");
+                }
+
+                /*         if($("#t").val().length>0)
+                        {
+                            $("#sub").removeAttr("disabled");
+                        }else{
+                            $("#sub").attr("disabled","true");            
+                        }
+                 */
+
+/*                 if (jsonQueue.length > 0) {
+                    if (audioQueue.length >= jsonQueue.length) {
+                        if ($("#saveit").attr("disabled") == 'true') $("#saveit").attr("disabled", 'false');
+                    } else {
+                        if ($("#saveit").attr("disabled") == 'false') $("#saveit").attr("disabled", 'true');
+                    }
+                } else {
+                    if ($("#saveit").attr("disabled") == 'false') $("#saveit").attr("disabled", 'true');
+                }
+ */            }, 100);
+        });
+        $("#saveit").attr("disabled", "true");  //saveit button state change
+        $("#saveit").click(() => {
+            if (jsonQueue.length <= 0) {
+                alert("Type in something and speak it first!");
+            } else {
+                if (audioQueue.length < jsonQueue.length) {
+                    alert("Please wait until all audio are retrieved.");
+                } else {
+                    $("#saveit").attr("disabled", "true");  //saveit button state change
+                    saveAudio();
+                }
+            }
+        });
+        $("#t").change(function () {
+            jsonQueue = [];
+            audioQueue = [];
+            playerPointer = -1;
+            abQueue = [];
+            //Submit button state change
+            $("#sub").text("Speak it!");
+            $("#saveit").attr("disabled", "true");  //saveit button state change
+
+            try { player.pause(); } catch (e) { }
+
+            //    console.log("The text has changed.");
+            /*     if ($("#t").val()!="") {
+                    $("#sub").removeAttr("disabled");
+                }else{
+                    $("#sub").attr("disabled","true");
+                }
+             */
+        });
+        $("#voice").change(function () {
+            $("#t").change();
+/*             jsonQueue = [];
+            audioQueue = [];
+            playerPointer = -1;
+            abQueue = [];
+            //Submit button state change
+            $("#sub").text("Speak it!");
+            $("#saveit").attr("disabled", "true");  //saveit button state change
+            if (player != undefined) player.pause();
+ */        });
+        $("#speedtxt").change(function () {
+            $("#speed").val($("#speedtxt").val());
+            $("#t").change();
+        });
+        $("#speed").change(function (){
+            $("#t").change();
+        })
+        $("#ratetxt").change(function () { //for the prosody dlg
+            $("#rate").val($("#ratetxt").val());
+        });
+        $("#pitchtxt").change(function () { //for the prosody dlg
+            $("#pitch").val($("#pitchtxt").val());
+        });
+
+
+        $("#insertAudio").click(function () {
+            insertText("\n<audiofile src='dingdong'>\n");
+        });
+        $("#insertPause").click(() => {
+            let pause = window.prompt("Pause for how long?" + "\n" + "e.g.:2s", "2s");
+            if (pause != "" && pause != null) {
+                if (pause.substr(pause.length - 2, 1) != "s") pause += "s";
+                if (/([0-9])(ms|s)/.test(pause)) {
+                    insertText("<break time='" + pause + "' />");
+                } else {
+                    alert("Invalid input.");
+                }
+            }
+        });
+        $("#insertRepeat").click(() => {
+            let count = window.prompt("Repeat how many times?", "2");
+            if (count != "" && count != null) {
+                if (Number(count) == NaN) {
+                    alert("Invalid input.");
+                } else {
+                    let t = $("#t");
+                    let tt = t.val();
+                    let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+                    if (st.indexOf("\n") != -1 || /(<voice[^>])/.test(st)) {
+                        wrapText("\n<repeat count='" + count + "'>\n", "\n</repeat>\n");
+                    } else {
+                        wrapText("<repeat count='" + count + "'>", "</repeat>");
+                    }
+                }
+            }
+        });
+
+        $("#changevoice").click(() => {
+            if ($("#dlgvoicelist0 > #voice").val() == undefined) {
+                $("#dlgvoicelist0").append($("body > #voice").clone());
+            }
+            $("#choosevoicedlg").css("display", "inline");
+        });
+        $("#dlgok0").click(() => {
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            let v = $("#dlgvoicelist0 > #voice").val();
+            if (st.indexOf("\n") != -1) {
+                wrapText("\n<voice name='" + v + "'>\n", "\n</voice>\n");
+            } else {
+                wrapText("<voice name='" + v + "'>", "</voice>");
+            }
+            $("#choosevoicedlg").css("display", "none");
+        });
+        $("#dlgcancel0").click(() => {
+            $("#choosevoicedlg").css("display", "none");
+        });
+
+        $("#dlgmaker").click(() => {
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            let stpara = st.split("\n");
+
+            let chara = [];
+
+
+            if (stpara.length < 2) {
+                alert("I cannot make a conversation out of less than 2 lines.");
+            } else {
+                let goahead = true;
+                for (let i = 0; i < stpara.length; i++) {
+                    if (stpara[i].trim() == "") continue;
+
+                    let curCharPos = stpara[i].search(/(:|：)/);
+                    if (curCharPos == -1) {
+                        alert("Line " + i + " does not contain a speaker indicator.");
+                        goahead = false;
+                        break;
+                    } else {
+                        let curChar = stpara[i].substring(0, curCharPos);
+                        if (chara.join().indexOf(curChar) == -1) {
+                            chara.push(curChar);
+                        }
+                    }
+                }
+                console.log("DialogMaker: Found characters: " + chara);
+                if (goahead) {
+                    for (let i = 0; i < chara.length; i++) {
+                        $("#charlist").append("<p>" + chara[i] + " —— ");
+                        $("#charlist").append($("body > #voice").clone());
+                        $("#charlist").append("</p>");
+                    }
+                    $("#dlgmakerdlg").css("display", "inline");
+                }
+
+            }
+        });
+        $("#dlgok1").click(() => {
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            let stpara = st.split("\n");
+
+            let chara = [];
+            let voices = [];
+
+
+            if (stpara.length < 2) {
+                alert("I cannot make a conversation out of less than 2 lines.");
+            } else {
+                let goahead = true;
+                for (let i = 0; i < stpara.length; i++) {
+                    if (stpara[i].trim() == "") continue;
+                    if (stpara[i].search(/(:|：)/) == -1) {
+                        alert("Line " + i + " does not contain a speaker indicator.");
+                        goahead = false;
+                        break;
+                    } else {
+                        chara.push(stpara[i].substring(0, stpara[i].search(/(:|：)/) + 1));
+                    }
+                }
+                // let charaRegExp=new RegExp ("(" + chara.join("|") + ")", "g");
+                if (goahead) {
+                    for (let i = 0; i < chara.length; i++) {
+                        $("#charlist > #voice").each(function () {
+                            voices.push($(this).val());
+                        });
+                    }
+                    console.log("DialogMaker: Selected voices: " + voices);
+
+                    for (let i = 0; i < stpara.length; i++) {
+                        for (let j = 0; j < chara.length; j++) {
+                            if (stpara[i].substring(0, stpara[i].search(/(:|：)/) + 1) == chara[j]) {
+                                stpara[i] = stpara[i].replace(chara[j], "<voice name='" + voices[j] + "'>");
+                                stpara[i] += "</voice>";
+                                break;
+                            }
+                        }
+                    }
+                    console.log("DialogMaker: Paragraph processed: " + stpara);
+
+                    st = stpara.join("\n");
+                    $("#t").val(tt.substring(0, t.get(0).selectionStart) + st + tt.substring(t.get(0)
+                        .selectionEnd));
+
+                }
+
+            }
+            $("#dlgmakerdlg").css("display", "none");
+            $("#charlist").empty();
+        });
+        $("#dlgcancel1").click(() => {
+            $("#dlgmakerdlg").css("display", "none");
+            $("#charlist").empty();
+        });
+
+        $("#insertEmph").click(() => {
+            $("#emphasisdlg").css("display", "inline");
+        });
+        $("#dlgok2").click(() => {
+            let emph = $("#emphlvl").val();
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            if (st.indexOf("\n") != -1) {
+                alert("Please don't wrap multiple lines with the <emphasis> tag.");
+            } else {
+                wrapText("<emphasis level='" + emph + "'>", "</emphasis>");
+            }
+            $("#emphasisdlg").css("display", "none");
+        });
+        $("#dlgcancel2").click(() => {
+            $("#emphasisdlg").css("display", "none");
+        });
+
+        $("#insertProsody").click(() => {
+            $("#prosodydlg").css("display", "inline");
+        });
+        $("#dlgok3").click(() => {
+            let rate = $("#rate").val();
+            let pitch = $("#pitch").val();
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            if (st.indexOf("\n") != -1) {
+                alert("Please don't wrap multiple lines with the <prosody> tag.");
+            } else {
+                wrapText("<prosody rate='" + rate + "%' pitch='" + (Number(pitch) > 0 ? "\+" + pitch : pitch) + "st'>", "</prosody>");
+            }
+            $("#prosodydlg").css("display", "none");
+            $("#rate").val("100");
+            $("#pitch").val("0");
+        });
+        $("#dlgcancel3").click(() => {
+            $("#prosodydlg").css("display", "none");
+            $("#rate").val("100");
+            $("#pitch").val("0");
+        });
+
+    </script>
+</body>
+
+</html>
