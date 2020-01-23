@@ -22,12 +22,8 @@
  */
 
 // Include Google Cloud dependendencies using Composer
-header('Access-Control-Allow-Origin:*');
-header("Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept");
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE');
-
 require_once __DIR__ . '/vendor/autoload.php';
-require __DIR__ . '/key.php';
+require __DIR__ . '/config.php';
 
 // [START tts_synthesize_ssml]
 use Google\Cloud\TextToSpeech\V1\AudioConfig;
@@ -47,7 +43,6 @@ if(array_key_exists("audio",$json))
     $base64_data=base64_encode(file_get_contents("./audio/".$json["audio"].".ogg"));
     $base64_file="data:audio/ogg;base64,".$base64_data;
 } elseif (array_key_exists("input",$json)) {
-
     // create client object
     $client = new TextToSpeechClient(['credentials'=>KEYFILE]);
 

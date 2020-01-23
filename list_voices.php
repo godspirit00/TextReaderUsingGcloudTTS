@@ -23,12 +23,8 @@
 
 // Include Google Cloud dependendencies using Composer
 
-header('Access-Control-Allow-Origin:*');
-header("Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept");
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE');
-
 require_once __DIR__ . '/vendor/autoload.php';
-require __DIR__ . '/key.php';
+require __DIR__ . '/config.php';
 
 // [START tts_list_voices]
 use Google\Cloud\TextToSpeech\V1\TextToSpeechClient;
@@ -38,14 +34,13 @@ $json='{"voices":[';
 // create client object
 $client = new TextToSpeechClient(['credentials'=>KEYFILE]);
 // perform list voices request
-// list Chinese voices
+// List Chinese voices
 $response = $client->listVoices(['languageCode'=>'zh']);
 $voices = $response->getVoices();
 
 foreach ($voices as $voice) {
     $json.='{ "name":"'.$voice->getName().'","lang":"'.$voice->getLanguageCodes()[0].'","gender":"'.$voice->getSsmlGender().'"},';
 }
-
 
 // List English voices
 $response = $client->listVoices(['languageCode'=>'en-US']);
