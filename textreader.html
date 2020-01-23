@@ -113,7 +113,7 @@
                     } else if (/(<repeat[^>])([\s\S]*?)(<\/repeat>)/.test(paras[i])) {
                         $("<xml>" + paras[i] + "</xml>").find('repeat').each(function () {
                             console.log("The text:" + $(this).text() + " will be read  " + $(this).attr("count") + " times");
-                            paras[i] = "<seq><media repeatCount='" + $(this).attr("count") + "'><speak>" + paras[i].replace(/(<repeat[\s\S]*?>)([\s\S]*?)(<\/repeat>)/, "$2") + "</speak></media></seq>";
+                            paras[i] = paras[i].replace(/(<repeat[\s\S]*?>)([\s\S]*?)(<\/repeat>)/, "<seq><media repeatCount='" + $(this).attr("count") + "'><speak> $2 </speak></media></seq>");
                             i--; //Just in case there is a voice tag inside, don't makeJSON now and let the line be processed again.
                         });
                     } else if (/(<repeat[^>])/.test(paras[i]) && paras[i].indexOf("</repeat>") == -1) {
