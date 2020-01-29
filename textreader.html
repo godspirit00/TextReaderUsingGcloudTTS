@@ -7,10 +7,10 @@
     <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
     <script src="./audiobuffer-to-wav.js"></script>
     <style type="text/css">
-    #t{
-        width: 70%;
-        height: 300px;
-    }
+        #t {
+            width: 70%;
+            height: 300px;
+        }
     </style>
     <script type="text/javascript">
         const serverPrefix = "";  //Always ends it with a "/"
@@ -149,8 +149,6 @@
 
             console.log("Now the jsonQueue looks like:" + jsonQueue);
             console.log("<-- Process complete.");
-            optimizeJSON();
-            sendReq();
             // } else {
             // console.log("Audio already retrieved. Start playing.");
             // playerPointer=-1;
@@ -533,6 +531,8 @@
                     $("#sub").text("Please wait...");
 
                     process();
+                    optimizeJSON();
+                    sendReq();
                 } else {
                     if (player.ended && playerPointer >= audioQueue.length - 1) {
                         console.log("Audio already retrieved. Start playing.");
@@ -673,7 +673,7 @@
             $("#speed").val($("#speedtxt").val());
             $("#t").change();
         });
-        $("#speed").change(function (){
+        $("#speed").change(function () {
             $("#t").change();
         })
         $("#ratetxt").change(function () { //for the prosody dlg
