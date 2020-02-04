@@ -61,6 +61,12 @@
             $("#t").focus();
         }
 
+        function sleep(interval) {
+            return new Promise(resolve => {
+                setTimeout(resolve, interval);
+            })
+        }
+
         function process() {
             // if (audioQueue.length <= 0) {
 
@@ -239,83 +245,55 @@
         async function sendReq() {
             if (jsonQueue.length > 0) {
                 console.log("Sending requests to the server.");
-                try {
-                    for (let i = 0; i < jsonQueue.length; i++) {
-                        console.log("Requesting line " + i + "...");
-                        if (jsonQueue[i].indexOf("\"audio\"") != -1) {
-                            console.log("Using prefetched static audio.");
-                            audioQueue.push(staticAudio[0]); //there is only one staticAudio for now ;)
-                        } else if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
-                            let thisjson = JSON.parse(jsonQueue[i]);
-                            audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
-                            console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
-                        } else {
-                            const res = await fetch(serverPrefix + 'speak.php', {
+                for (let i = 0; i < jsonQueue.length; i++) {
+                    console.log("Requesting line " + i + "...");
+                    if (jsonQueue[i].indexOf("\"audio\"") != -1) {
+                        console.log("Using prefetched static audio.");
+                        audioQueue.push(staticAudio[0]); //there is only one staticAudio for now ;)
+                    } else if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
+                        let thisjson = JSON.parse(jsonQueue[i]);
+                        audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
+                        console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
+                    } else {
+                        let retryTimes = 3;
+                        let index;
+                        for (index = 0; index < retryTimes; index++) {
+                            await fetch(serverPrefix + 'speak.php', {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json'
                                 },
                                 body: jsonQueue[i]
-                            }); //Returns a Response obj, needs func to convert to text.
-                            if (res.ok) {
-                                const restext = await res.text();
+                            }).then(res => {
+                                if (res.ok) {
+                                    return res.text();
+                                } else {
+                                    index = 90;
+                                    throw new Error(res.statusText);
+                                }
+                            }).then(restext => {
                                 if (restext.indexOf("data:audio") != -1) {
                                     console.log("Audio #" + i + " received.");
                                     audioQueue.push(restext);
-                                } else {
-                                    console.log("Something else received for Line #" + i + ": " + restext);
-                                    throw new Error("Line #" + i + " may not have been correctly synthesized: " + restext);
-                                    audioQueue.push("");
+                                    index = 99;
                                 }
-                            } else {
-                                throw new Error('HTTP error, status = ' + res.status);
-                                console.log("HTTP Error " + res.status + " when synthing line #" + i);
-                                audioQueue.push("");
-                            }
+                            }).catch(reason => {
+                                console.log("Failed to retrieve audio #" + i + ": " + reason + ".");
+                                if (index != 90 && index < retryTimes - 1) console.log("Retrying...");
+                            });
+                            await sleep(3000);
                         }
-                    }
-                    console.log("All audio has been retrieved.");
-                    $("#saveit").removeAttr("disabled");  //saveit button state change
-                } catch (error) {
-                    console.log("Some lines were not correctly synthed. Retrying.");
-                    try {
-                        for (let i = 0; i < jsonQueue.length; i++) {
-                            if (audioQueue[i] == "") {
-                                console.log("Requesting line " + i + "...");
-                                if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
-                                    let thisjson = JSON.parse(jsonQueue[i]);
-                                    audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
-                                    console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
-                                } else {
-                                    const res = await fetch(serverPrefix + 'speak.php', {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json'
-                                        },
-                                        body: jsonQueue[i]
-                                    }); //Returns a Response obj, needs func to convert to text.
-                                    if (res.ok) {
-                                        const restext = await res.text();
-                                        if (restext.indexOf("data:audio") != -1) {
-                                            console.log("Audio #" + i + " received.");
-                                            audioQueue[i] = restext;
-                                        } else {
-                                            console.log("Something else received for Line #" + i + ": " + restext);
-                                            throw new Error();
-                                        }
-                                    } else {
-                                        throw new Error();
-                                        console.log("HTTP Error " + res.status + " for line #" + i);
-                                    }
-                                }
-                            }
+                        if (index < 99) {
+                            console.error("Failed to retrieve audio #" + i);
                         }
-                        console.log("All audio has been retrieved.");
-                        $("#saveit").removeAttr("disabled");  //saveit button state change                        
-                    } catch (error) {
-                        alert("Some lines were not correctly synthed. Refresh the page and try again.");
                     }
                 }
+                if (audioQueue.length != reqQueue.length) {
+                    alert("Some lines are not synthesized correctly.");
+                } else {
+                    console.log("All audio has been retrieved.");
+                }
+                $("#saveit").removeAttr("disabled");  //saveit button state change
             } else {
                 alert("Type in something first!");
             }
@@ -829,8 +807,7 @@
                 }
 
             }
-            $("#dlgmakerdlg").css("display", "none");
-            $("#charlist").empty();
+            $("#dlgcancel1").click();
         });
         $("#dlgcancel1").click(() => {
             $("#dlgmakerdlg").css("display", "none");
@@ -868,11 +845,9 @@
             if (st.indexOf("\n") != -1) {
                 alert("Please don't wrap multiple lines with the <prosody> tag.");
             } else {
-                wrapText("<prosody rate='" + rate + "%' pitch='" + (Number(pitch) > 0 ? "\+" + pitch : pitch) + "st'>", "</prosody>");
+                wrapText("<prosody" + Number(rate) != 1 ? (" rate=\"" + Number(rate) + "\"") : "" + Number(pitch) != 0 ? (" pitch=\"" + (Number(pitch) > 0 ? "\+" + pitch : pitch) + "st\">") : "", "</prosody>");
             }
-            $("#prosodydlg").css("display", "none");
-            $("#rate").val("100");
-            $("#pitch").val("0");
+            $("#dlgcancel3").click();
         });
         $("#dlgcancel3").click(() => {
             $("#prosodydlg").css("display", "none");
