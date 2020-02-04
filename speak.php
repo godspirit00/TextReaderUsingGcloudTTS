@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Copyright 2018 Google Inc.
  *
@@ -34,28 +35,23 @@ use Google\Cloud\TextToSpeech\V1\TextToSpeechClient;
 use Google\Cloud\TextToSpeech\V1\VoiceSelectionParams;
 
 
-$data=file_get_contents("php://input");
-$json=json_decode($data,true);
-$base64_file="";
+$data = file_get_contents("php://input");
+$json = json_decode($data, true);
+$base64_file = "";
 
-if(array_key_exists("audio",$json))
-{
-    $base64_data=base64_encode(file_get_contents("./audio/".$json["audio"].".ogg"));
-    $base64_file="data:audio/ogg;base64,".$base64_data;
-} elseif (array_key_exists("input",$json)) {
+if (array_key_exists("input", $json)) {
     // create client object
-    $client = new TextToSpeechClient(['credentials'=>KEYFILE]);
+    $client = new TextToSpeechClient(['credentials' => KEYFILE]);
 
     $input_text = (new SynthesisInput())
         ->setSsml($json["input"]["ssml"]);
 
-    $langCode=strstr($json["voice"]["name"],"-Wavenet",true);
-    if(!$langCode)
-    {
-        $langCode=strstr($json["voice"]["name"],"-Standard",true);
+    $langCode = strstr($json["voice"]["name"], "-Wavenet", true);
+    if (!$langCode) {
+        $langCode = strstr($json["voice"]["name"], "-Standard", true);
     }
-// note: the voice can also be specified by name
-// names of voices can be retrieved with $client->listVoices()
+    // note: the voice can also be specified by name
+    // names of voices can be retrieved with $client->listVoices()
     $voice = (new VoiceSelectionParams())
         ->setName($json["voice"]["name"])
         ->setLanguageCode($langCode);
@@ -67,12 +63,12 @@ if(array_key_exists("audio",$json))
     $response = $client->synthesizeSpeech($input_text, $voice, $audioConfig);
     $audioContent = $response->getAudioContent();
 
-    $base64_data=base64_encode($audioContent);
-    $base64_file="data:audio/ogg;base64,".$base64_data;
+    $base64_data = base64_encode($audioContent);
+    $base64_file = "data:audio/ogg;base64," . $base64_data;
 
-    
+
     $client->close();
-// [END tts_synthesize_ssml]
+    // [END tts_synthesize_ssml]
 }
 
-echo($base64_file);
+echo ($base64_file);
