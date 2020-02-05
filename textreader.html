@@ -20,6 +20,7 @@
         var playerPointer = -1;
         var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         var abQueue = [];
+        var staticAudio = [];
 
         function isChinese(str) {
             var patrn = /[\u4E00-\u9FA5]|[\uFE30-\uFFA0]/gi;
@@ -100,17 +101,22 @@
                     } else if (isChinese(paras[i])) {
                         if (defaultVoice.indexOf("cmn-CN") == -1) {
                             makeJSON(paras[i], $("#zh_CN > option:nth-child(3)").val());
-                            console.log("Line " + i + " will be read by voice " + $("#zh_CN > option:nth-child(3)")
-                                .val());
+                            console.log("Line " + i + " will be read by voice " + $("#zh_CN > option:nth-child(3)").val());
                         } else {
                             makeJSON(paras[i], defaultVoice);
                             console.log(paras[i] + " will be read by defaultVoice.");
                         }
-                    } else if (/(<audiofile src[^>])/.test(paras[i])) {
-                        $("<xml>" + paras[i] + "</xml>").find('audiofile').each(function () {
+                    } else if (/(<audio src[^>])/.test(paras[i])) {
+                        $("<xml>" + paras[i] + "</xml>").find('audio').each(function () {
                             let t = $(this).attr("src");
                             console.log("An audio file: " + t + " will be played.");
                             makeJSON(t, -1);
+                        });
+                    } else if (/(<audio id[^>])/.test(paras[i])) {
+                        $("<xml>" + paras[i] + "</xml>").find('audio').each(function () {
+                            let t = $(this).attr("id");
+                            console.log("staticAudio #" + t + " will be played.");
+                            makeJSON(t, -2);
                         });
                     } else if (/(<repeat[^>])([\s\S]*?)(<\/repeat>)/.test(paras[i])) {
                         $("<xml>" + paras[i] + "</xml>").find('repeat').each(function () {
@@ -156,6 +162,8 @@
         function makeJSON(text, voice) {
             if (voice == -1) {
                 var json = "{ \"audio\" : \"" + text + "\" }";
+            } else if (voice == -2) {
+                var json = "{ \"audioid\" : \"" + text + "\" }";
             } else if (text.trim().replace(/<break time='([0-9 ])(s|ms)' \/>/, "") == "" && text.indexOf("<break time=") != -1) {  //Synth single-lined <break> with a less expensive voice
                 var json = "{ \"input\": { \"ssml\" : \"<speak> " + text + " </speak>\" }, \"voice\": {\"name\": \"" +
                     "en-US-Standard-B" + "\"}, \"audioConfig\":{\"audioEncoding\": \"OGG\", \"speakingRate\": " + rate + "} }";
@@ -214,7 +222,6 @@
 
 
             console.log("jsonQueue optimized. Now JSON queue looks like: " + jsonQueue);
-            // console.log("Used voices: " + usedVoices);
         }
 
         async function sendReq() {
@@ -239,6 +246,10 @@
                         }).catch(reason => {
                             console.log("Unable to load audio file: " + thisjson.audio + ", " + reason);
                         });
+                    } else if (jsonQueue[i].indexOf("\"audioid\"") != -1) {
+                        let thisjson = JSON.parse(jsonQueue[i]);
+                        console.log("Loading staticAudio #" + thisjson.audioid);
+                        audioQueue.push(staticAudio[Number(thisjson.audioid)]);
                     } else if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
                         let thisjson = JSON.parse(jsonQueue[i]);
                         audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
@@ -453,9 +464,17 @@
             value="0"> <input type="number" id="pitchtxt" max="8" min="-8" step="1">semitone <br> Rate: <input
             type="range" id="rate" min="0" max="500" value="100" step="10"> <input type="number" id="ratetxt" min="0"
             max="500" step="10">%<br><button id="dlgok3">OK</button> <button id="dlgcancel3">Cancel</button></div>
-    <div id="insertaudiofiledlg" style="display: none;">Insert audio file: <br /> <input type="text" id="audiourl"
-            placeholder="Enter URL to the audio file. e.g.: http://example.com/a.mp3 or file://D:/a.mp3" size="100">
-        <br><button id="dlgok5">OK</button> <button id="dlgcancel5">Cancel</button></div>
+    <div id="insertaudiofiledlg" style="display: none;">Insert audio file:
+        <br />
+        <div id="audiolist">
+            <label> <input type="radio" name="a" id="audios" value="-1" checked> Pick a file: <input type="file"
+                    id="audiofile" accept="audio/*"></label><br />
+            <label> <input type="radio" name="a" id="audios" value="-2"><input type="url" id="audiourl"
+                    placeholder="Enter URL to the audio file. e.g.: http://example.com/a.mp3" size="80"> </label><br />
+        </div>
+
+        <br><button id="dlgok5">OK</button> <button id="dlgcancel5">Cancel</button>
+    </div>
 
     <script type="text/javascript">
         $(document).ready(function () {
@@ -576,6 +595,7 @@
 
             try { player.pause(); } catch (e) { }
         });
+        $("#t").bind("input", ()=>$("#t").change());
         $("#voice").change(function () {
             $("#t").change();
         });
@@ -597,7 +617,7 @@
         $("#insertPause").click(() => {
             let pause = window.prompt("Pause for how long?" + "\n" + "e.g.:2s", "2s");
             if (pause != "" && pause != null) {
-                if (pause.substr(pause.length - 2, 1) != "s") pause += "s";
+                if (pause.substr(pause.length - 1, 1) != "s") pause += "s";
                 if (/([0-9])(ms|s)/.test(pause)) {
                     insertText("<break time='" + pause + "' />");
                 } else {
@@ -786,15 +806,45 @@
 
         $("#insertAudio").click(function () {
             $("#insertaudiofiledlg").css("display", "inline");
-            $("#audiourl").focus();
         });
         $("#dlgok5").click(() => {
-            let url = $("#audiourl").val();
-            if (url != "") insertText("\n<audiofile src='" + url + "'>\n");
-            $("#dlgcancel5").click();
+            let s = $("#audios:checked").val();
+            switch (s) {
+                case "-1":
+                    let file = $("#audiofile");
+                    if (file.val() == "") {
+                        alert("Choose a file, please.");
+                        return;
+                    } else {
+                        let thisfile = file[0].files[0];
+                        let id = staticAudio.push(URL.createObjectURL(thisfile)) - 1;
+                        insertText("\n<audio id=\"" + id + "\"/>\n");
+                        $("#audiolist").prepend("<label><input type='radio' name='a' id='audios' value='" + id + "' checked>  " + thisfile.name + "  <button onclick='new Audio(staticAudio[" + id + "]).play()'>Play</button></label><br />");
+                        $("#dlgcancel5").click();
+                    }
+                    break;
+                case "-2":
+                    let url = $("#audiourl").val();
+                    if (url != "") {
+                        insertText("\n<audio src=\"" + url + "\"/>\n");
+                        $("#dlgcancel5").click();
+                    } else {
+                        alert("Please enter the URL to the audio file.");
+                        return;
+                    }
+                    break;
+                default:
+                    insertText("\n<audio id=\"" + s + "\"/>\n");
+                    $("#dlgcancel5").click();
+                    break;
+            }
         });
         $("#dlgcancel5").click(() => {
+            $("#audiofile").val("");
             $("#insertaudiofiledlg").css("display", "none");
+        });
+        $("label").click(() => {
+            $(this).find("#audios").click();
         });
     </script>
 </body>
