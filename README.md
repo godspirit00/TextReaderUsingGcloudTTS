@@ -17,7 +17,7 @@ Google uses groundbreaking research in speech synthesis (WaveNet) and Google's p
     NOTE FOR USERS IN MAINLAND CHINA / 中国大陆用户请注意：本项目使用了Google服务，请确保您运行PHP的服务器可以访问Google。
 2. Follow [Google's guide](https://cloud.google.com/text-to-speech/docs/quickstart-client-libraries#before-you-begin) to Step 4 and obtain your key file.
 3. Place your key file on your server. Edit `config.php` and replace `/path/to/your/key.json` with the path to your key file.
-4. Follow [Google's guide](https://cloud.google.com/text-to-speech/docs/quickstart-client-libraries#install_the_client_library) to install Google Cloud's client library for PHP for text-to-speech.
+4. Follow [Google's guide](https://cloud.google.com/text-to-speech/docs/quickstart-client-libraries#install_the_client_library) to install Google Cloud's client library for PHP for text-to-speech. Be sure to run the `composer` command in the directory where you place this repo. Furthermore, this client library for PHP requires the extension `ext-bcmath`, be sure to have it installed.
 5. Enjoy!
 
 This project uses [Google Cloud Services](https://cloud.google.com/text-to-speech/), [jQuery](https://www.jquery.com/), [audiobuffer-to-wav.js](https://github.com/Jam3/audiobuffer-to-wav).
