@@ -67,15 +67,37 @@
             })
         }
 
+        function previewPlay(src) {
+            let p = $("#previewer")[0];
+            if (p.currentSrc != src) {
+                p.src = src;
+                p.play();
+            } else {
+                p.pause();
+            }
+        }
+
         function process() {
 
             console.log("Start processing input... -->");
             var defaultVoice = $("body > #voice").val();
-            var paras = $("#t").val().split("\n");
+            var text = $("#t").val();
+            var paras = text.split("\n");
             rate = $("#speed").val();
             console.log("Voice:" + defaultVoice);
             console.log("Paragraphs:" + paras);
             console.log("Rate: " + rate);
+
+            if (text.indexOf("<audio id=") != -1) {
+                let findAudio = new RegExp(/<audio id="([0-9]+)"/gmi);
+                let result;
+                while ((result = findAudio.exec(text)) != null) {
+                    if (staticAudio[Number(result[1])] == undefined) {
+                        return false;
+                    }
+                }
+            }
+
 
             let repeatStart = -1;
             let repeatCount = 1;
@@ -157,6 +179,7 @@
 
             console.log("Now the jsonQueue looks like:" + jsonQueue);
             console.log("<-- Process complete.");
+            return true;
         }
 
         function makeJSON(text, voice) {
@@ -248,8 +271,14 @@
                         });
                     } else if (jsonQueue[i].indexOf("\"audioid\"") != -1) {
                         let thisjson = JSON.parse(jsonQueue[i]);
-                        console.log("Loading staticAudio #" + thisjson.audioid);
-                        audioQueue.push(staticAudio[Number(thisjson.audioid)]);
+                        let targetAudio = staticAudio[Number(thisjson.audioid)];
+                        if (targetAudio == undefined) {
+                            console.log("staticAudio #" + thisjson.audioid + " does not exist. Skipping.");
+                            audioQueue.push("");
+                        } else {
+                            console.log("Loading staticAudio #" + thisjson.audioid);
+                            audioQueue.push(targetAudio);
+                        }
                     } else if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
                         let thisjson = JSON.parse(jsonQueue[i]);
                         audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
@@ -439,7 +468,8 @@
     &nbsp;&nbsp; Rate: <input type="range" id="speed" min="0.25" max="4.0" step="0.01"> <input type="text"
         id="speedtxt">
     <br>
-    <button id="insertAudio">Insert audio file</button> <button id="insertPause">Insert Pause</button>
+    <button id="insertAudio">Insert audio file</button> <button id="supplyMissingAudio" style="display: none;">Supply
+        missing audio files</button> <button id="insertPause">Insert Pause</button>
     <div id="showOnSelect"><button id="insertRepeat">Insert repeat</button> <button id="changevoice">Change
             voice</button>
         <button id="dlgmaker">Dialog Maker</button> <button id="insertEmph">Insert emphasis</button> <button
@@ -465,15 +495,20 @@
             type="range" id="rate" min="0" max="500" value="100" step="10"> <input type="number" id="ratetxt" min="0"
             max="500" step="10">%<br><button id="dlgok3">OK</button> <button id="dlgcancel3">Cancel</button></div>
     <div id="insertaudiofiledlg" style="display: none;">Insert audio file:
-        <br />
+        <br /> <audio id="previewer" style="display: none;"></audio>
         <div id="audiolist">
-            <label> <input type="radio" name="a" id="audios" value="-1" checked> Pick a file: <input type="file"
-                    id="audiofile" accept="audio/*"></label><br />
+            <p class="filebrowser"><label> <input type="radio" name="a" id="audios" value="-1" checked> Pick a file:
+                    <input type="file" id="audiofile" accept="audio/*"></label></p>
             <label> <input type="radio" name="a" id="audios" value="-2"><input type="url" id="audiourl"
                     placeholder="Enter URL to the audio file. e.g.: http://example.com/a.mp3" size="80"> </label><br />
         </div>
 
         <br><button id="dlgok5">OK</button> <button id="dlgcancel5">Cancel</button>
+    </div>
+    <div id="missingaudiodlg" style="display: none;">Missing audio files: <br />Please supply the missing audio
+        files:<br />
+        <div id="missingaudiolist"></div>
+        <br /> <button id="dlgok6">OK</button>
     </div>
 
     <script type="text/javascript">
@@ -492,9 +527,17 @@
                     $("#sub").attr("disabled", "true");
                     $("#sub").text("Please wait...");
 
-                    process();
-                    optimizeJSON();
-                    sendReq();
+                    if (!process()) {
+                        alert("Some audio files are missing. Please supply them and try again.");
+                        $("#supplyMissingAudio").click();
+
+                        //Submit button state change
+                        $("#sub").removeAttr("disabled");
+                        $("#sub").text("Speak it!");
+                    } else {
+                        optimizeJSON();
+                        sendReq();
+                    }
                 } else {
                     if (player.ended && playerPointer >= audioQueue.length - 1) {
                         console.log("Audio already retrieved. Start playing.");
@@ -595,7 +638,7 @@
 
             try { player.pause(); } catch (e) { }
         });
-        $("#t").bind("input", ()=>$("#t").change());
+        $("#t").bind("input", () => $("#t").change());
         $("#voice").change(function () {
             $("#t").change();
         });
@@ -729,7 +772,6 @@
                         chara.push(stpara[i].substring(0, stpara[i].search(/(:|：)/) + 1));
                     }
                 }
-                // let charaRegExp=new RegExp ("(" + chara.join("|") + ")", "g");
                 if (goahead) {
                     for (let i = 0; i < chara.length; i++) {
                         $("#charlist > #voice").each(function () {
@@ -811,15 +853,18 @@
             let s = $("#audios:checked").val();
             switch (s) {
                 case "-1":
-                    let file = $("#audiofile");
+                    let file = $("#audios:checked").siblings("#audiofile");
                     if (file.val() == "") {
                         alert("Choose a file, please.");
                         return;
                     } else {
                         let thisfile = file[0].files[0];
                         let id = staticAudio.push(URL.createObjectURL(thisfile)) - 1;
-                        insertText("\n<audio id=\"" + id + "\"/>\n");
-                        $("#audiolist").prepend("<label><input type='radio' name='a' id='audios' value='" + id + "' checked>  " + thisfile.name + "  <button onclick='new Audio(staticAudio[" + id + "]).play()'>Play</button></label><br />");
+                        insertText("\n<audio id=\"" + id + "\" name=\"" + thisfile.name + "\"/> \n");
+                        $("#audiolist").prepend("<p><label><input type='radio' name='a' id='audios' value='" + id + "'>  " + thisfile.name + "  <button onclick='previewPlay(staticAudio[" + id + "])'>Play</button></label></p>");
+                        $("#audios:checked").parents(".filebrowser").css("display", "none");
+                        $("#audios:checked").removeAttr("value");
+                        $("#audios:checked").parents(".filebrowser").after('<p class="filebrowser"><label> <input type="radio" name="a" id="audios" value="-1" checked> Pick a file: <input type="file" id="audiofile" accept="audio/*"></label></p>');
                         $("#dlgcancel5").click();
                     }
                     break;
@@ -840,12 +885,37 @@
             }
         });
         $("#dlgcancel5").click(() => {
-            $("#audiofile").val("");
             $("#insertaudiofiledlg").css("display", "none");
         });
         $("label").click(() => {
             $(this).find("#audios").click();
         });
+        $("#supplyMissingAudio").click(() => {
+            let findAudio = new RegExp(/<audio id="([0-9]+)" name="([\S ][^\/"]+)"\/>/gmi);
+            let result;
+            let ids = [];
+
+            while ((result = findAudio.exec($("#t").val())) != null) {
+                if (ids.indexOf(result[1]) == -1) {
+                    ids.push(result[1]);
+                    $("#missingaudiolist").append("<p> Audio #" + result[1] + ": " + result[2] + " --> <input type='file' class='missingfile' uid='" + result[1] + "' accept='audio/*'></p>");
+                }
+            }
+            $("#missingaudiodlg").css("display", "inline");
+        });
+        $("#dlgok6").click(() => {
+            $(".missingfile").each(function (index) {
+                if ($(this).val() != "") {
+                    let thisfile = $(this)[0].files[0];
+                    staticAudio[Number($(this).attr("uid"))] = URL.createObjectURL(thisfile);
+                    $("#audiolist").prepend("<p><label><input type='radio' name='a' id='audios' value='" + $(this).attr("uid") + "'>  " + thisfile.name + "  <button onclick='previewPlay(staticAudio[" + $(this).attr("uid") + "])'>Play</button></label></p>");
+                }
+            });
+            $("#missingaudiodlg").css("display", "none");
+            $("#missingaudiolist").children().css("display", "none");
+        });
+
+
     </script>
 </body>
 
