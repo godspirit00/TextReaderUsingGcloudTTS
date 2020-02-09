@@ -50,6 +50,12 @@
             $("#t").focus();
         }
 
+        function insertTxt(text, index, insert) {
+            let start = text.substring(0, index);
+            let end = text.substring(index);
+            return (start + insert + end);
+        }
+
         function wrapText(openTag, closeTag) {
             var textArea = $('#t');
             var len = textArea.val().length;
@@ -82,10 +88,8 @@
             console.log("Start processing input... -->");
             var defaultVoice = $("body > #voice").val();
             var text = $("#t").val();
-            var paras = text.split("\n");
             rate = $("#speed").val();
             console.log("Voice:" + defaultVoice);
-            console.log("Paragraphs:" + paras);
             console.log("Rate: " + rate);
 
             if (text.indexOf("<audio id=") != -1) {
@@ -98,6 +102,55 @@
                 }
             }
 
+            if (defaultVoice.indexOf("cmn-CN") == -1) {
+                let findChinese = new RegExp(/(([^"][0-9（“《\u4E00-\u9FA5\uFE30-\uFFA0]+[（“《\u4E00-\u9FA5\uFE30-\uFFA0]+[0-9（“《\u4E00-\u9FA5\uFE30-\uFFA0]+[，。？！”…》）\n]*)+)/gim);
+                while (findChinese.exec(text) != null) {
+                    text = text.replace(findChinese, "<voice name='" + $("#zh_CN > option:nth-child(3)").val() + "'>$1</voice>");
+                    break;
+                }
+                let findDuplicate = new RegExp(/(<voice name=[\s\S]*?>)([0-9\., \u3002\uff1b\uff0c\uff1a\u201c\u201d\uff08\uff09\u3001\uff1f\u300a\u300b]*?)(<voice name=[\s\S]*?>)(([\u4E00-\u9FA5]|[\uFE30-\uFFA0])+)<\/voice>([0-9\., \u3002\uff1b\uff0c\uff1a\u201c\u201d\uff08\uff09\u3001\uff1f\u300a\u300b]*?)<\/voice>/gim);
+                text = text.replace(findDuplicate, "$1$2$4$6</voice>");
+            }
+
+            if (text.indexOf("<voice name=") != -1) {
+                var findVoice = new RegExp(/(<voice name=)/gmi);
+                text = text.replace(findVoice, "\n$1");
+                findVoice = new RegExp(/(<\/voice>)/gmi);
+                text = text.replace(findVoice, "$1\n");
+            }
+
+            if (text.indexOf("<audio src=") != -1 || text.indexOf("<audio id=") != -1) {
+                let findAudio = new RegExp(/<audio ((src="[\s\S]+"[ ]*?)|(id="[0-9]+"[ ]*?)|(id="[0-9]+"[ ]*? name="([\S ][^\/"]+)"))\/>/gmi);
+                let result, insertCount = 0, tmpStr = text;
+                while ((result = findAudio.exec(text)) != null) {
+                    tmpStr = insertTxt(tmpStr, result.index + insertCount * ("\n".length), "\n");
+                    insertCount++;
+                    tmpStr = insertTxt(tmpStr, findAudio.lastIndex + insertCount * ("\n".length), "\n");
+                    insertCount++;
+                }
+                text = tmpStr;
+            }
+
+            if (text.indexOf("<repeat ") != -1) {
+                let findRepeat = new RegExp(/(<repeat count='[0-9]+'>)([\s\S]+)(<\/repeat>)/gmi);
+                let result, insertCount = 0, tmpStr = text;
+                while ((result = findRepeat.exec(text)) != null) {
+                    if (result[2].includes("<voice name") || result[2].includes("</voice>")) {
+                        tmpStr = insertTxt(tmpStr, result.index + insertCount * ("\n".length), "\n");
+                        insertCount++;
+                        tmpStr = insertTxt(tmpStr, text.indexOf(result[1]) + insertCount * ("\n".length) + result[1].length, "\n");
+                        insertCount++;
+                        tmpStr = insertTxt(tmpStr, text.indexOf(result[3]) + insertCount * ("\n".length), "\n");
+                        insertCount++;
+                        tmpStr = insertTxt(tmpStr, findRepeat.lastIndex + insertCount * ("\n".length), "\n");
+                        insertCount++;
+                    }
+                }
+                text = tmpStr;
+            }
+
+            var paras = text.split("\n");
+            console.log("Paragraphs:" + paras);
 
             let repeatStart = -1;
             let repeatCount = 1;
@@ -120,14 +173,6 @@
                         });
                     } else if (paras[i].indexOf("</voice>") != -1) {
                         tempVoice = "";
-                    } else if (isChinese(paras[i])) {
-                        if (defaultVoice.indexOf("cmn-CN") == -1) {
-                            makeJSON(paras[i], $("#zh_CN > option:nth-child(3)").val());
-                            console.log("Line " + i + " will be read by voice " + $("#zh_CN > option:nth-child(3)").val());
-                        } else {
-                            makeJSON(paras[i], defaultVoice);
-                            console.log(paras[i] + " will be read by defaultVoice.");
-                        }
                     } else if (/(<audio src[^>])/.test(paras[i])) {
                         $("<xml>" + paras[i] + "</xml>").find('audio').each(function () {
                             let t = $(this).attr("src");
@@ -140,7 +185,7 @@
                             console.log("staticAudio #" + t + " will be played.");
                             makeJSON(t, -2);
                         });
-                    } else if (/(<repeat[^>])([\s\S]*?)(<\/repeat>)/.test(paras[i])) {
+                    } else if (/(<repeat[^>])([\s\S]+)(<\/repeat>)/.test(paras[i])) {
                         $("<xml>" + paras[i] + "</xml>").find('repeat').each(function () {
                             console.log("The text:" + $(this).text() + " will be read  " + $(this).attr("count") + " times");
                             paras[i] = paras[i].replace(/(<repeat[\s\S]*?>)([\s\S]*?)(<\/repeat>)/, "<seq><media repeatCount='" + $(this).attr("count") + "'><speak> $2 </speak></media></seq>");
@@ -224,15 +269,78 @@
                 }
             }
 
+            let startofTags = [];
+            let startofTagsName = [];
+            let startofTagsIndex = [];
             for (let i = 0; i < jsonQueue.length; i++) {
                 if (jsonQueue[i].indexOf("ssml") != -1) {
                     let thisjson = JSON.parse(jsonQueue[i]);
                     let thistext = thisjson.input.ssml;
-                    thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
+                    thistext = (/<speak>([\s\S]+)<\/speak>/.exec(thistext))[1];
+                    let findStartofTag = new RegExp(/<(prosody|sub|phoneme|say-as|par|seq|media)[\s\S]*?>/gmi);
+                    let result;
+                    while ((result = findStartofTag.exec(thistext)) != null) {
+                        startofTags.push(result[0]);
+                        startofTagsName.push(result[1]);
+                        startofTagsIndex.push(result.index);
+                    }
+                    if (startofTags.length > 0) {
+                        if (thistext.search(findStartofTag) != -1) {
+                            for (let j = startofTags.length - 1; j >= 0; j--) {
+                                if (thistext.indexOf("</" + startofTagsName[j] + ">", startofTagsIndex[j]) != -1)  //This tag is closed.
+                                {
+                                    startofTagsName.splice(j, 1);
+                                    startofTags.splice(j, 1);
+                                    startofTagsIndex.splice(j, 1);
+                                }
+                            }
+                            for (let j = startofTags.length - 1; j >= 0; j--) {
+                                let tmpStr = thistext.indexOf("<" + startofTagsName[j]) == -1 ? thistext : thistext.substring(0, thistext.indexOf("<" + startofTagsName[j]));
+                                if (tmpStr.indexOf("</" + startofTagsName[j] + ">") != -1 && tmpStr.indexOf(startofTags[j]) == -1) { //Found the close tag of a tag started in prev para.
+                                    thistext = startofTags[j] + thistext;
+                                    startofTagsName.splice(j, 1);
+                                    startofTags.splice(j, 1);
+                                    startofTagsIndex.splice(j, 1);
+                                    continue;
+                                }
+                                if (thistext.indexOf("</" + startofTagsName[j] + ">", startofTagsIndex[j]) == -1) {  //This tag is not closed. Add a temporal close tag.
+                                    thistext += "</" + startofTagsName[j] + ">";
+                                }
+                            }
+
+                        } else { //No start of tags found in this para
+                            if (thistext.search(/<\/[\S]*?>/) != -1) {
+                                for (let j = startofTags.length - 1; j >= 0; j--) {
+                                    if (thistext.indexOf("</" + startofTagsName[j] + ">") != -1) {
+                                        thistext = startofTags[j] + thistext;
+                                        startofTagsName.splice(j, 1);
+                                        startofTags.splice(j, 1);
+                                        startofTagsIndex.splice(j, 1);
+                                    }
+                                }
+                            } else {
+                                if (startofTags.length > 0) {
+                                    for (let j = startofTags.length - 1; j >= 0; j--) {
+                                        thistext = startofTags[j] + thistext + "</" + startofTagsName[j] + ">";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    thisjson.input.ssml = "<speak>" + thistext + "</speak>";
                     jsonQueue[i] = JSON.stringify(thisjson);
                 }
             }
 
+            /*             for (let i = 0; i < jsonQueue.length; i++) {
+                            if (jsonQueue[i].indexOf("ssml") != -1) {
+                                let thisjson = JSON.parse(jsonQueue[i]);
+                                let thistext = thisjson.input.ssml;
+                                thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
+                                jsonQueue[i] = JSON.stringify(thisjson);
+                            }
+                        }
+             */
             for (let i = 0; i < jsonQueue.length; i++) {  //Rewrite JSON to reuse audio
                 if (jsonQueue[i].indexOf("ssml") != -1) {
                     for (let j = 0; j < jsonQueue.length; j++) {
@@ -669,16 +777,16 @@
             }
         });
         $("#insertRepeat").click(() => {
-            let count = window.prompt("Repeat how many times?", "2");
-            if (count != "" && count != null) {
-                if (Number(count) == NaN) {
-                    alert("Invalid input.");
-                } else {
-                    let t = $("#t");
-                    let tt = t.val();
-                    let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
-                    if (st.indexOf("\n") != -1 || /(<voice[^>])/.test(st)) {
-                        wrapText("\n<repeat count='" + count + "'>\n", "\n</repeat>\n");
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            if (st.indexOf("<repeat ") != -1 || st.indexOf("</repeat>") != -1) {
+                alert("Please do not insert <repeat> tags over other <repeat> tags.");
+            } else {
+                let count = window.prompt("Repeat how many times?", "2");
+                if (count != "" && count != null) {
+                    if (Number(count) == NaN) {
+                        alert("Invalid input.");
                     } else {
                         wrapText("<repeat count='" + count + "'>", "</repeat>");
                     }
@@ -687,10 +795,17 @@
         });
 
         $("#changevoice").click(() => {
-            if ($("#dlgvoicelist0 > #voice").val() == undefined) {
-                $("#dlgvoicelist0").append($("body > #voice").clone());
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            if (st.indexOf("<voice ") != -1 || st.indexOf("</voice>") != -1) {
+                alert("Please do not insert <voice> tags over other <voice> tags.");
+            } else {
+                if ($("#dlgvoicelist0 > #voice").val() == undefined) {
+                    $("#dlgvoicelist0").append($("body > #voice").clone());
+                }
+                $("#choosevoicedlg").css("display", "inline");
             }
-            $("#choosevoicedlg").css("display", "inline");
         });
         $("#dlgok0").click(() => {
             let t = $("#t");
@@ -712,6 +827,10 @@
             let t = $("#t");
             let tt = t.val();
             let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
+            if (st.indexOf("<voice ") != -1 || st.indexOf("</voice>") != -1) {
+                alert("Please do not insert <voice> tags over other <voice> tags.");
+                return;
+            }
             let stpara = st.split("\n");
 
             let chara = [];
@@ -784,7 +903,7 @@
                         for (let j = 0; j < chara.length; j++) {
                             if (stpara[i].substring(0, stpara[i].search(/(:|：)/) + 1) == chara[j]) {
                                 stpara[i] = stpara[i].replace(chara[j], "<voice name='" + voices[j] + "'>");
-                                stpara[i] += "</voice>";
+                                stpara[i] += "<break strength='medium'/></voice>";
                                 break;
                             }
                         }
@@ -806,18 +925,18 @@
         });
 
         $("#insertEmph").click(() => {
-            $("#emphasisdlg").css("display", "inline");
-        });
-        $("#dlgok2").click(() => {
-            let emph = $("#emphlvl").val();
             let t = $("#t");
             let tt = t.val();
             let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
-            if (st.indexOf("\n") != -1) {
-                alert("Please don't wrap multiple lines with the <emphasis> tag.");
+            if (st.indexOf("<voice name") != -1 || st.indexOf("</voice>") != -1 || st.indexOf("<repeat ") != -1 || st.indexOf("</repeat>") != -1) {
+                alert("Please do not insert <emphasis> tags over <voice> or <repeat> tags.");
             } else {
-                wrapText("<emphasis level='" + emph + "'>", "</emphasis>");
+                $("#emphasisdlg").css("display", "inline");
             }
+        });
+        $("#dlgok2").click(() => {
+            let emph = $("#emphlvl").val();
+            wrapText("<emphasis level='" + emph + "'>", "</emphasis>");
             $("#emphasisdlg").css("display", "none");
         });
         $("#dlgcancel2").click(() => {
@@ -825,19 +944,18 @@
         });
 
         $("#insertProsody").click(() => {
+            let t = $("#t");
+            let tt = t.val();
+            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
             $("#prosodydlg").css("display", "inline");
         });
         $("#dlgok3").click(() => {
             let rate = $("#rate").val();
             let pitch = $("#pitch").val();
-            let t = $("#t");
-            let tt = t.val();
-            let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
-            if (st.indexOf("\n") != -1) {
-                alert("Please don't wrap multiple lines with the <prosody> tag.");
-            } else {
-                wrapText("<prosody" + Number(rate) != 1 ? (" rate=\"" + Number(rate) + "\"") : "" + Number(pitch) != 0 ? (" pitch=\"" + (Number(pitch) > 0 ? "\+" + pitch : pitch) + "st\">") : "", "</prosody>");
-            }
+            let tmpStr = "";
+            if (Number(rate) != 1) tmpStr += " rate=\"" + rate + "\"";
+            if (Number(pitch) != 0) tmpStr += " pitch=\"" + (Number(pitch) > 0 ? "\+" + pitch : pitch) + "st\"";
+            wrapText("<prosody" + tmpStr + ">", "</prosody>");
             $("#dlgcancel3").click();
         });
         $("#dlgcancel3").click(() => {
@@ -860,7 +978,7 @@
                     } else {
                         let thisfile = file[0].files[0];
                         let id = staticAudio.push(URL.createObjectURL(thisfile)) - 1;
-                        insertText("\n<audio id=\"" + id + "\" name=\"" + thisfile.name + "\"/> \n");
+                        insertText("<audio id=\"" + id + "\" name=\"" + thisfile.name + "\"/> ");
                         $("#audiolist").prepend("<p><label><input type='radio' name='a' id='audios' value='" + id + "'>  " + thisfile.name + "  <button onclick='previewPlay(staticAudio[" + id + "])'>Play</button></label></p>");
                         $("#audios:checked").parents(".filebrowser").css("display", "none");
                         $("#audios:checked").removeAttr("value");
@@ -871,7 +989,7 @@
                 case "-2":
                     let url = $("#audiourl").val();
                     if (url != "") {
-                        insertText("\n<audio src=\"" + url + "\"/>\n");
+                        insertText("<audio src=\"" + url + "\"/>");
                         $("#dlgcancel5").click();
                     } else {
                         alert("Please enter the URL to the audio file.");
@@ -879,7 +997,7 @@
                     }
                     break;
                 default:
-                    insertText("\n<audio id=\"" + s + "\"/>\n");
+                    insertText("<audio id=\"" + s + "\"/>");
                     $("#dlgcancel5").click();
                     break;
             }
