@@ -144,6 +144,10 @@
                         insertCount++;
                         tmpStr = insertTxt(tmpStr, findRepeat.lastIndex + insertCount * ("\n".length), "\n");
                         insertCount++;
+                    } else {
+                        let thistext = result[2];
+                        thistext = thistext.replace(/\n/gm, " ");
+                        tmpStr = tmpStr.replace(result[2], thistext);
                     }
                 }
                 text = tmpStr;
