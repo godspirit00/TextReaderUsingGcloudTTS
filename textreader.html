@@ -431,7 +431,7 @@
                     if (/^<break time='[0-9ms]+' \/>$/.exec(thiscontent.trim()) == null) {
                         thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
                     } else {
-                        thisjson.voice = "en-US-Standard-B";
+                        thisjson.voice.name = "en-US-Standard-B";
                     }
                     jsonQueue[i] = JSON.stringify(thisjson);
                 }
@@ -455,9 +455,9 @@
             if (jsonQueue.length > 0) {
                 console.log("Sending requests to the server.");
                 for (let i = 0; i < jsonQueue.length; i++) {
+                    let thisjson = JSON.parse(jsonQueue[i]);
                     console.log("Requesting line " + i + "...");
-                    if (jsonQueue[i].indexOf("\"audio\"") != -1) {
-                        let thisjson = JSON.parse(jsonQueue[i]);
+                    if (thisjson.audio != undefined) {
                         console.log("Loading external audio file: " + thisjson.audio);
                         await fetch(thisjson.audio).then(res => {
                             if (res.ok) {
@@ -473,8 +473,7 @@
                         }).catch(reason => {
                             console.log("Unable to load audio file: " + thisjson.audio + ", " + reason);
                         });
-                    } else if (jsonQueue[i].indexOf("\"audioid\"") != -1) {
-                        let thisjson = JSON.parse(jsonQueue[i]);
+                    } else if (thisjson.audioid != undefined) {
                         let targetAudio = staticAudio[Number(thisjson.audioid)];
                         if (targetAudio == undefined) {
                             console.log("staticAudio #" + thisjson.audioid + " does not exist. Skipping.");
@@ -483,8 +482,7 @@
                             console.log("Loading staticAudio #" + thisjson.audioid);
                             audioQueue.push(targetAudio);
                         }
-                    } else if (jsonQueue[i].indexOf("\"repeatLine\"") != -1) { //Reuse audio for same content
-                        let thisjson = JSON.parse(jsonQueue[i]);
+                    } else if (thisjson.repeatLine != undefined) { //Reuse audio for same content
                         audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
                         console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
                     } else {
