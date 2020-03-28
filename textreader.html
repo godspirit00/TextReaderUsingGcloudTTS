@@ -16,7 +16,6 @@
         const serverPrefix = "";  //Always ends it with a "/"
         var jsonQueue = [];
         var audioQueue = [];
-        var rate = 1;
         var playerPointer = -1;
         var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         var abQueue = [];
@@ -87,10 +86,10 @@
 
             console.log("Start processing input... -->");
             var defaultVoice = $("body > #voice").val();
+            var defaultRate = $("body > #speakingrate > #speed").val();
             var text = $("#t").val();
-            rate = $("#speed").val();
             console.log("Voice:" + defaultVoice);
-            console.log("Rate: " + rate);
+            console.log("Rate: " + defaultRate);
 
             if (text.indexOf("<audio id=") != -1) {
                 let findAudio = new RegExp(/<audio id="([0-9]+)"/gmi);
@@ -107,12 +106,12 @@
                 if (findChinese.exec(text) != null) {
                     text = text.replace(findChinese, "<voice name='" + $("#zh_CN > option:nth-child(3)").val() + "'>$1</voice>");
                 }
-                let findDuplicate = new RegExp(/(<voice name=[\s\S]*?>)([0-9\., \u3002\uff1b\uff0c\uff1a\u201c\u201d\uff08\uff09\u3001\uff1f\u300a\u300b]*?)(<voice name=[\s\S]*?>)(([\u4E00-\u9FA5]|[\uFE30-\uFFA0])+)<\/voice>([0-9\., \u3002\uff1b\uff0c\uff1a\u201c\u201d\uff08\uff09\u3001\uff1f\u300a\u300b]*?)<\/voice>/gim);
+                let findDuplicate = new RegExp(/(<voice name[A-z 0-9='"][^>]*?>)([0-9\., \u3002\uff1b\uff0c\uff1a\u201c\u201d\uff08\uff09\u3001\uff1f\u300a\u300b]*?)(<voice name=[\s\S]*?>)(([\u4E00-\u9FA5\s]|[\uFE30-\uFFA0\s])+)<\/voice>([0-9\., \u3002\uff1b\uff0c\uff1a\u201c\u201d\uff08\uff09\u3001\uff1f\u300a\u300b]*?)<\/voice>/gim);
                 text = text.replace(findDuplicate, "$1$2$4$6</voice>");
             }
 
             if (text.indexOf("<voice name=") != -1) {
-                var findVoice = new RegExp(/(<voice name='[A-z0-9 -]+'>)/gmi);
+                var findVoice = new RegExp(/(<voice name[A-z 0-9='"][^>]*?>)/gmi);
                 text = text.replace(findVoice, "\n$1\n");
                 findVoice = new RegExp(/(<\/voice>)/gmi);
                 text = text.replace(findVoice, "\n$1\n");
@@ -158,24 +157,20 @@
             let repeatStart = -1;
             let repeatCount = 1;
             let tempVoice = "";
+            let tempRate = "";
 
             for (let i = 0; i < paras.length; i++) {
                 if (paras[i].trim() != "") //not blank
                 {
-/*                     if (/(<voice[^>])([\s\S]*?)(<\/voice>)/.test(paras[i])) {
-                        console.log("Line " + i + " has a voice tag.");
-                        $("<xml>" + paras[i] + "</xml>").find('voice').each(function () {
-                            console.log("The text:" + $(this).text() + " will be read by voice " + $(this).attr(
-                                "name"));
-                            makeJSON(paras[i].replace(/(<voice[\s\S]*?>)([\s\S]*?)(<\/voice>)/, "$2"), $(this).attr("name"));
-                        });
-                    } else */ if (/(<voice[^>])/.test(paras[i]) && paras[i].indexOf("</voice>") == -1) {
+                    if (/(<voice[^>])/.test(paras[i]) && paras[i].indexOf("</voice>") == -1) {
                         $("<xml>" + paras[i] + "</voice></xml>").find('voice').each(function () {
                             console.log("A voice tag for multi-line defines voice " + $(this).attr("name"));
                             tempVoice = $(this).attr("name");
+                            tempRate = $(this).attr("rate") != undefined ? $(this).attr("rate") : "";
                         });
                     } else if (paras[i].indexOf("</voice>") != -1) {
                         tempVoice = "";
+                        tempRate = "";
                     } else if (/(<audio src[^>])/.test(paras[i])) {
                         $("<xml>" + paras[i] + "</xml>").find('audio').each(function () {
                             let t = $(this).attr("src");
@@ -214,10 +209,10 @@
                         }
                     } else {
                         if (tempVoice == "") {
-                            makeJSON(paras[i], defaultVoice);
+                            makeJSON(paras[i], defaultVoice, defaultRate);
                             console.log(paras[i] + " will be read by defaultVoice.");
                         } else {
-                            makeJSON(paras[i], tempVoice);
+                            makeJSON(paras[i], tempVoice, tempRate == "" ? defaultRate : tempRate);
                             console.log(paras[i] + " will be read by " + tempVoice + ".");
                         }
                     }
@@ -230,7 +225,7 @@
             return true;
         }
 
-        function makeJSON(text, voice) {
+        function makeJSON(text, voice, rate) {
             if (voice == -1) {
                 var json = "{ \"audio\" : \"" + text + "\" }";
             } else if (voice == -2) {
@@ -317,19 +312,21 @@
             }
 
             let usedVoices = [];
+            let usedRates = [];
             for (let i = 0; i < jsonQueue.length; i++) {
                 if (jsonQueue[i].indexOf("ssml") != -1) {
-                    // console.log("Optimizing line " + i);
                     let thisjson = JSON.parse(jsonQueue[i]);
                     let thisvoice = thisjson.voice.name;
+                    let thisrate = thisjson.audioConfig.speakingRate;
                     usedVoices.push(thisvoice);
+                    usedRates.push(thisrate);
                     if (i > 0) {
-                        if (thisvoice == usedVoices[i - 1]) {
-                            let newssml = jsonQueue[i - 1].substring(0, jsonQueue[i - 1].indexOf("</speak>\"")) +
-                                jsonQueue[i].substring(jsonQueue[i].indexOf("\"<speak>") + 8);
+                        if (thisvoice == usedVoices[i - 1] && thisrate == usedRates[i - 1]) {
+                            let newssml = jsonQueue[i - 1].substring(0, jsonQueue[i - 1].indexOf("</speak>\"")) + jsonQueue[i].substring(jsonQueue[i].indexOf("\"<speak>") + 8);
                             jsonQueue[i] = newssml;
                             jsonQueue.splice(i - 1, 1);
                             usedVoices.splice(i - 1, 1);
+                            usedRates.splice(i - 1, 1);
                             i--;
                         }
                     }
@@ -658,17 +655,14 @@
     <h1>Text Reader using Google Cloud Text-to-speech</h1><br>
     Default voice: <select id="voice">
         <optgroup label="US English" id="en_US">
-            <!-- <option value="VW Paul" selected>Paul</option> -->
         </optgroup>
         <optgroup label="British English" id="en_GB">
-            <!-- <option value="IVONA Brian22">Brian</option>  -->
         </optgroup>
         <optgroup label="Mandarin Chinese" id="zh_CN">
-            <!-- <option value="VW Hui">Hui</option><option value="VW Wang">Wang</option> -->
         </optgroup>
     </select>
-    &nbsp;&nbsp; Rate: <input type="range" id="speed" min="0.25" max="4.0" step="0.01"> <input type="text"
-        id="speedtxt">
+    &nbsp;&nbsp; <div id="speakingrate" style="display: inline;">Default rate: <input type="range" id="speed"
+            class="range" min="0.25" max="4.0" step="0.01"> <input type="text" id="speedtxt" class="rangetxt"></div>
     <br>
     <button id="insertAudio">Insert audio file</button> <button id="supplyMissingAudio" style="display: none;">Supply
         missing audio files</button> <button id="insertPause">Insert Pause</button>
@@ -693,9 +687,10 @@
             <option value="reduced">Reduced</option>
         </select><br><button id="dlgok2">OK</button> <button id="dlgcancel2">Cancel</button></div>
     <div id="prosodydlg" style="display: none;">Set prosody:<br>Pitch:<input type="range" id="pitch" min="-8" max="8"
-            value="0"> <input type="number" id="pitchtxt" max="8" min="-8" step="1">semitone <br> Rate: <input
-            type="range" id="rate" min="0" max="500" value="100" step="10"> <input type="number" id="ratetxt" min="0"
-            max="500" step="10">%<br><button id="dlgok3">OK</button> <button id="dlgcancel3">Cancel</button></div>
+            value="0" class="range"> <input type="number" id="pitchtxt" max="8" min="-8" step="1"
+            class="rangetxt">semitone <br> Rate: <input type="range" id="rate" min="0" max="500" value="100" step="10"
+            class="range"> <input type="number" id="ratetxt" min="0" max="500" step="10" class="rangetxt">%<br><button
+            id="dlgok3">OK</button> <button id="dlgcancel3">Cancel</button></div>
     <div id="insertaudiofiledlg" style="display: none;">Insert audio file:
         <br /> <audio id="previewer" style="display: none;"></audio>
         <div id="audiolist">
@@ -798,16 +793,6 @@
                     }
                 }
 
-                if (document.activeElement.id != "speedtxt") {
-                    $("#speedtxt").val($("#speed").val());
-                }
-                if (document.activeElement.id != "ratetxt") { //for the prosody dlg
-                    $("#ratetxt").val($("#rate").val());
-                }
-                if (document.activeElement.id != "pitchtxt") { //for the prosody dlg
-                    $("#pitchtxt").val($("#pitch").val());
-                }
-
                 if ($("#t")[0].selectionStart != $("#t").get(0).selectionEnd) {
                     $("#showOnSelect").css("display", "inline");
                 } else {
@@ -840,24 +825,16 @@
 
             try { player.pause(); } catch (e) { }
         });
-        $("#t").bind("input", () => $("#t").change());
-        $("#voice").change(function () {
-            $("#t").change();
+        $("#t").on("input", () => $("#t").change());
+        $("#voice").change(() => $("#t").change());
+        $("#speedtxt").change(() => $("#t").change());
+        $("#speed").change(() => $("#t").change());
+        $(document).on("change input", ".range", function () {  //bind the change/input event of range on document so that later generated ranges can also have the event.
+            $(this).next(".rangetxt").val($(this).val());
         });
-        $("#speedtxt").change(function () {
-            $("#speed").val($("#speedtxt").val());
-            $("#t").change();
+        $(document).on("change input", ".rangetxt", function () {
+            $(this).prev(".range").val($(this).val());
         });
-        $("#speed").change(function () {
-            $("#t").change();
-        })
-        $("#ratetxt").change(function () { //for the prosody dlg
-            $("#rate").val($("#ratetxt").val());
-        });
-        $("#pitchtxt").change(function () { //for the prosody dlg
-            $("#pitch").val($("#pitchtxt").val());
-        });
-
 
         $("#insertPause").click(() => {
             let pause = window.prompt("Pause for how long?" + "\n" + "e.g.:2s", "2s");
@@ -897,6 +874,7 @@
             } else {
                 if ($("#dlgvoicelist0 > #voice").val() == undefined) {
                     $("#dlgvoicelist0").append($("body > #voice").clone());
+                    $("#dlgvoicelist0").after($("body > #speakingrate").clone());
                 }
                 $("#choosevoicedlg").css("display", "inline");
             }
@@ -906,10 +884,11 @@
             let tt = t.val();
             let st = tt.substring(t.get(0).selectionStart, t.get(0).selectionEnd);
             let v = $("#dlgvoicelist0 > #voice").val();
-            if (st.indexOf("\n") != -1) {
+            let r = $("#choosevoicedlg > #speakingrate > #speed").val();
+            if (r == $("body > #speakingrate > #speed").val()) {
                 wrapText("\n<voice name='" + v + "'>\n", "\n</voice>\n");
             } else {
-                wrapText("<voice name='" + v + "'>", "</voice>");
+                wrapText("\n<voice name='" + v + "' rate='" + r + "'>\n", "\n</voice>\n");
             }
             $("#choosevoicedlg").css("display", "none");
         });
@@ -954,6 +933,7 @@
                     for (let i = 0; i < chara.length; i++) {
                         $("#charlist").append("<p>" + chara[i] + " —— ");
                         $("#charlist").append($("body > #voice").clone());
+                        $("#charlist").append($("body > #speakingrate").clone());
                         $("#charlist").append("</p>");
                     }
                     $("#dlgmakerdlg").css("display", "inline");
@@ -969,7 +949,7 @@
 
             let chara = [];
             let voices = [];
-
+            let rates = [];
 
             if (stpara.length < 2) {
                 alert("I cannot make a conversation out of less than 2 lines.");
@@ -989,14 +969,15 @@
                     for (let i = 0; i < chara.length; i++) {
                         $("#charlist > #voice").each(function () {
                             voices.push($(this).val());
+                            rates.push($(this).next("#speakingrate").children("#speed").val());
                         });
                     }
-                    console.log("DialogMaker: Selected voices: " + voices);
+                    console.log("DialogMaker: Selected voices: " + voices + ", and rates: " + rates);
 
                     for (let i = 0; i < stpara.length; i++) {
                         for (let j = 0; j < chara.length; j++) {
                             if (stpara[i].substring(0, stpara[i].search(/(:|：)/) + 1) == chara[j]) {
-                                stpara[i] = stpara[i].replace(chara[j], "<voice name='" + voices[j] + "'>");
+                                stpara[i] = stpara[i].replace(chara[j], "<voice name='" + voices[j] + "' rate='" + rates[j] + "'>");
                                 stpara[i] += "</voice>";
                                 break;
                             }
@@ -1099,7 +1080,7 @@
         $("#dlgcancel5").click(() => {
             $("#insertaudiofiledlg").css("display", "none");
         });
-        $("label").click(() => {
+        $(".filebrowser > label").click(() => {
             $(this).find("#audios").click();
         });
         $("#supplyMissingAudio").click(() => {
