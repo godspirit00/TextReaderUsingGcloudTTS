@@ -39,14 +39,14 @@ $(document).ready(function () {
                 console.log("Audio already retrieved. Start playing.");
                 playerPointer = -1;
                 // Play audioQueue directly.
-                changeSubButton("Pause");
+                changeSubButton("Pause", true);
             } else {
                 if (!player.ended && player.paused) {
                     player.play();
-                    changeSubButton("Pause");
+                    changeSubButton("Pause", true);
                 } else if (!player.ended && !player.paused) {
                     player.pause();
-                    changeSubButton("Resume");
+                    changeSubButton("Resume", true);
                 }
             }
         }
@@ -63,10 +63,10 @@ $(document).ready(function () {
                 if (audioQueue.length < jsonQueue.length) {
                     changeSubButton('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>&nbsp;&nbsp;Please wait...', false);
                 } else {
-                    changeSubButton("Replay");
+                    changeSubButton("Replay", true);
                 }
             } else {
-                changeSubButton("Speak it!");
+                changeSubButton("Speak it!", true);
             }
         }
     });
@@ -80,7 +80,7 @@ $(document).ready(function () {
                 console.log("Playing Audio #" + playerPointer);
                 player.play();
 
-                changeSubButton("Pause", false);
+                changeSubButton("Pause", true);
             }
         }
 
