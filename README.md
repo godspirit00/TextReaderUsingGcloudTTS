@@ -11,6 +11,7 @@ Google uses groundbreaking research in speech synthesis (WaveNet) and Google's p
 + Dialog Maker to help you transform speaker indicators like "Tony:", "Betty:", etc. to the `<voice>` tags so that these lines will be read by desired voices.
 + Automatically detects lines written in Chinese and have them read by a Chinese voice so that you won't have to manually insert the `<voice>` tags.
 + Export the speech to WAV files.
++ Side effects: You can use it as a simple audio joiner, or even an audio-to-wav converter.
 
 ## How to use
 1. Clone this repo. Place it somewhere that can run PHP and reach Google.

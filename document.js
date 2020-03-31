@@ -425,9 +425,9 @@ $("#supplyMissingAudio").click(() => {
 
     while ((result = findAudio.exec($("#t").val())) != null) {
         if (ids.indexOf(result[1]) == -1) {
-            if ($("#missingaudiolist").find(".missingfile[uid='" + result[1] + "']").length <= 0) {
+            if ($("#missingaudiolist").find(".missingfile[data-id='" + result[1] + "']").length <= 0) {
                 ids.push(result[1]);
-                $("#missingaudiolist").append("<tr><th scope='row'>" + result[1] + "</th><td>" + (result[3] == undefined ? "<span class='font-italic'>Unknown</span>" : result[3]) + "</td><td><input type='file' class='missingfile' uid='" + result[1] + "' accept='audio/*'></td></tr>");
+                $("#missingaudiolist").append("<tr><th scope='row'>" + result[1] + "</th><td>" + (result[3] == undefined ? "<span class='font-italic'>Unknown</span>" : result[3]) + "</td><td><input type='file' class='missingfile' data-id='" + result[1] + "' accept='audio/*'></td></tr>");
             }
         }
     }
@@ -437,8 +437,9 @@ $("#dlgok6").click(() => {
         if ($(this).parents("tr").css("display") != "none") {
             if ($(this).val() != "") {
                 let thisfile = $(this)[0].files[0];
-                staticAudio[Number($(this).attr("uid"))] = URL.createObjectURL(thisfile);
-                $("#audiolist").prepend("<p><input type='radio' name='a' id='audios" + $(this).attr("uid") + "' value='" + $(this).attr("uid") + "' class='form-check-input audios'>&nbsp;<label class='form-check-label' for='audios" + $(this).attr("uid") + "'> <strong>#" + id + "</strong>&nbsp;-&nbsp;" + thisfile.name + "  <button class=\"btn btn-info\" onclick='previewPlay(staticAudio[" + $(this).attr("uid") + "])'>Play</button></label></p>");
+                let id = $(this).data("id");
+                staticAudio[Number(id)] = URL.createObjectURL(thisfile);
+                $("#audiolist").prepend("<p><input type='radio' name='a' id='audios" + id + "' value='" + id + "' class='custom-control-input audios'><label class='custom-control-label' for='audios" + id + "'> <strong>#" + id + "</strong>&nbsp;-&nbsp;" + thisfile.name + "&nbsp;&nbsp;&nbsp;<button class=\"btn btn-info\" onclick='previewPlay(staticAudio[" + id + "])'>Play</button></label></p>");
                 $(this).parents("tr").hide();
             } else {
                 $(this).parents("tr").remove();
