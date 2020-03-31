@@ -20,4 +20,4 @@ Google uses groundbreaking research in speech synthesis (WaveNet) and Google's p
 4. Follow [Google's guide](https://cloud.google.com/text-to-speech/docs/quickstart-client-libraries#install_the_client_library) to install Google Cloud's client library for PHP for text-to-speech. Be sure to run the `composer` command in the directory where you place this repo. Furthermore, this client library for PHP requires the extension `ext-bcmath`, be sure to have it installed.
 5. Enjoy!
 
-This project uses [Google Cloud Services](https://cloud.google.com/text-to-speech/), [jQuery](https://www.jquery.com/), [audiobuffer-to-wav.js](https://github.com/Jam3/audiobuffer-to-wav).
+This project uses [Google Cloud Services](https://cloud.google.com/text-to-speech/), [jQuery](https://www.jquery.com/), [audiobuffer-to-wav.js](https://github.com/Jam3/audiobuffer-to-wav), [Bootstrap](https://getbootstrap.com/).
