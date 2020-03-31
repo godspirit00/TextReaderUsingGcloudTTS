@@ -40,7 +40,7 @@
                     </select></div>
                 <div class="col-sm-auto"> <label for="speakingrate" class="col-form-label">Default rate</label></div>
                 <div id="speakingrate" class="form-inline col-auto"><input type="range" id="speed"
-                        class="range form-control-range col p-0" min="0.25" max="4.0" step="0.01"
+                        class="range custom-range col p-0" min="0.25" max="4.0" step="0.01"
                         value="1">&nbsp;&nbsp;&nbsp;<input type="number" min="0.25" max="4.0" step="0.01" id="speedtxt"
                         value="1" class="rangetxt form-control col-4"> </div>
             </div>
@@ -52,14 +52,25 @@
                         missing audio files</button> <button id="insertPause" class="btn btn-outline-primary btn-sm"
                         data-toggle="modal" data-target="#insertpausedlg">Insert
                         Pause</button>
-                    <div id="showOnSelect"><button id="insertRepeat" class="btn btn-outline-secondary btn-sm">Insert
-                            repeat</button>
-                        <button id="changevoice" class="btn btn-outline-secondary btn-sm">Change
-                            voice</button>
-                        <button id="dlgmaker" class="btn btn-outline-secondary btn-sm">Dialog Maker</button> <button
-                            id="insertEmph" class="btn btn-outline-secondary btn-sm">Insert emphasis</button> <button
-                            id="insertProsody" class="btn btn-outline-secondary btn-sm">Insert prosody</button></div>
-                </div>
+                        <div id="showOnSelect"><div class="dropdown d-inline d-md-none">
+                            <button class="btn btn-outline-secondary dropdown-toggle btn-sm" type="button" id="showOnSelectButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                              More
+                            </button>
+                            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                              <a class="dropdown-item" href="#" id="insertRepeat">Insert repeat</a>
+                              <a class="dropdown-item" href="#" id="changevoice">Change voice</a>
+                              <a class="dropdown-item" href="#" id="dlgmaker">Dialog Maker</a>
+                              <a class="dropdown-item" href="#" id="insertEmph">Insert emphasis</a>
+                              <a class="dropdown-item" href="#" id="insertProsody">Insert prosody</a>              
+                            </div>
+                          </div><div class="d-none d-md-inline"><button id="insertRepeat" class="btn btn-outline-secondary btn-sm">Insert
+                                repeat</button>
+                            <button id="changevoice" class="btn btn-outline-secondary btn-sm">Change
+                                voice</button>
+                            <button id="dlgmaker" class="btn btn-outline-secondary btn-sm">Dialog Maker</button> <button
+                                id="insertEmph" class="btn btn-outline-secondary btn-sm">Insert emphasis</button> <button
+                                id="insertProsody" class="btn btn-outline-secondary btn-sm">Insert prosody</button></div></div>
+                    </div>
             </div>
             <div class="form-group row">
                 <div class="col-md-12"><textarea id="t" autofocus spellcheck="false"
@@ -181,14 +192,14 @@
                 <div class="modal-body">
                     <form>
                         <div class="form-group">
-                            <div id="audiolist" class="form-group col">
+                            <div id="audiolist" class="form-group col custom-control custom-radio">
                                 <div class="filebrowser"><input type="radio" name="a" id="audios-1" value="-1" checked
-                                        class="form-check-input audios"> <label for="audios-1" class="form-check-label">
+                                        class="custom-control-input audios"> <label for="audios-1" class="custom-control-label">
                                         Pick a file:</label>
                                     <input type="file" id="audiofile" accept="audio/*"></div>
                             </div>
-                            <div class="form-group col"><input type="radio" name="a" id="audios-2" value="-2"
-                                    class="form-check-input audios"><label class="form-check-label"
+                            <div class="form-group col custom-control custom-radio"><input type="radio" name="a" id="audios-2" value="-2"
+                                    class="custom-control-input audios"><label class="custom-control-label"
                                     for="audios-2"><input type="url" id="audiourl"
                                         placeholder="Enter URL to the audio file. e.g.: http://example.com/a.mp3"
                                         size="80" class="form-control"> </label><audio id="previewer"

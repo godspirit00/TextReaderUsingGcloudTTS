@@ -389,12 +389,12 @@ $("#dlgok5").click(() => {
                 let thisfile = file[0].files[0];
                 let id = staticAudio.push(URL.createObjectURL(thisfile)) - 1;
                 insertText("<audio id=\"" + id + "\" name=\"" + thisfile.name + "\"/> ");
-                $("#audiolist").prepend("<p><input type='radio' name='a' id='audios" + id + "' value='" + id + "' class='form-check-input audios'>&nbsp;<label class='form-check-label' for='audios" + id + "'> <strong>#" + id + "</strong>&nbsp;-&nbsp;" + thisfile.name + "&nbsp;&nbsp;&nbsp;<button class=\"btn btn-info\" onclick='previewPlay(staticAudio[" + id + "])'>Play</button></label></p>");
+                $("#audiolist").prepend("<p><input type='radio' name='a' id='audios" + id + "' value='" + id + "' class='custom-control-input audios'><label class='custom-control-label' for='audios" + id + "'> <strong>#" + id + "</strong>&nbsp;-&nbsp;" + thisfile.name + "&nbsp;&nbsp;&nbsp;<button class=\"btn btn-info\" onclick='previewPlay(staticAudio[" + id + "])'>Play</button></label></p>");
                 $(".audios:checked").parents(".filebrowser").hide();
                 $(".audios:checked").removeAttr("value");
                 $(".audios:checked").attr("id", "audios" + id);
                 $(".audios:checked").next("label").attr("id", "audios" + id);
-                $(".audios:checked").parents(".filebrowser").after('<div class="filebrowser"><input type="radio" name="a" id="audios-1" value="-1" checked class="form-check-input audios"> <label for="audios-1" class="form-check-label"> Pick a file:</label> <input type="file" id="audiofile" accept="audio/*"></div>');
+                $(".audios:checked").parents(".filebrowser").after('<div class="filebrowser"><input type="radio" name="a" id="audios-1" value="-1" checked class="custom-control-input audios"> <label for="audios-1" class="custom-control-label"> Pick a file:</label> <input type="file" id="audiofile" accept="audio/*"></div>');
             }
             break;
         case "-2":
