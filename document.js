@@ -53,6 +53,9 @@ $(document).ready(function () {
     });
 
     $("#showOnSelect").css("display", "none");
+    $("#showOnSelect").find(".dropdown-item").click(function () {
+        $("#" + $(this).data("id")).click();
+    });
 
     const player = new Audio();
     player.loop = false;
