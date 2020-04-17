@@ -413,7 +413,9 @@ function optimizeJSON() {
             let thistext = thisjson.input.ssml;
             let thiscontent = (/<speak>([\s\S]+)<\/speak>/.exec(thistext))[1];
             if (/^<break time='[0-9ms]+' \/>$/.exec(thiscontent.trim()) == null) {
-                thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
+                if (/<break time='[0-9ms]+' \/>$/.exec(thiscontent.trim()) == null) {
+                    thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
+                }
             } else {
                 thisjson.voice.name = "en-US-Standard-B";
             }
@@ -522,7 +524,8 @@ async function sendReq() {
 
 async function getVoices() {
     console.log("Requesting voice list...");
-    fetch(serverPrefix + 'list_voices.php', {
+    let voiceList;
+    await fetch(serverPrefix + 'list_voices.php', {
         method: 'GET',
         headers: {
             'Content-Type': 'application/json'
@@ -535,35 +538,10 @@ async function getVoices() {
         }
     }).then(resjson => {
         console.log("Voice list received: " + resjson);
-
-        ssmlVoiceGender = ['SSML_VOICE_GENDER_UNSPECIFIED', 'MALE', 'FEMALE', 'NEUTRAL'];
-
-        for (const key in resjson.voices) {
-            if (resjson.voices[key].lang.indexOf("en-US") != -1) {
-                if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
-                    $("#en_US").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
-                        Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
-                            "en-US-Wavenet-", "") + " </option>");
-                }
-            } else if (resjson.voices[key].lang.indexOf("en-GB") != -1) {
-                if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
-                    $("#en_GB").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
-                        Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
-                            "en-GB-Wavenet-", "") + " </option>");
-                }
-            } else if (resjson.voices[key].lang.indexOf("cmn-CN") != -1) {
-                if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
-                    $("#zh_CN").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
-                        Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
-                            "cmn-CN-Wavenet-", "") + " </option>");
-                }
-            }
-        }
-        $("#en_US > option:nth-child(4)").attr("selected", "true");
-        changeSubButton("Speak it!", true);
+        voiceList = resjson;
 
     }).catch(reason => msgbox("An error occured when retrieving the voice list: \n" + reason));
-
+    return voiceList;
 }
 
 async function joinAudio() {

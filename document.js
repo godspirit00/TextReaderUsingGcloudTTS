@@ -17,9 +17,37 @@ function changeSubButton(text, state) {
 
 $(document).ready(function () {
     $("form").submit(event => event.preventDefault());
-    getVoices();
     //Submit button state change
     changeSubButton('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>&nbsp;&nbsp;Please wait...', false);
+    getVoices().then(resjson => {
+        if (resjson != undefined) {
+            let ssmlVoiceGender = ['SSML_VOICE_GENDER_UNSPECIFIED', 'MALE', 'FEMALE', 'NEUTRAL'];
+
+            for (const key in resjson.voices) {
+                if (resjson.voices[key].lang.indexOf("en-US") != -1) {
+                    if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
+                        $("#en_US").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
+                            Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
+                                "en-US-Wavenet-", "") + " </option>");
+                    }
+                } else if (resjson.voices[key].lang.indexOf("en-GB") != -1) {
+                    if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
+                        $("#en_GB").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
+                            Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
+                                "en-GB-Wavenet-", "") + " </option>");
+                    }
+                } else if (resjson.voices[key].lang.indexOf("cmn-CN") != -1) {
+                    if (resjson.voices[key].name.indexOf("Wavenet") != -1) {
+                        $("#zh_CN").append("<option value='" + resjson.voices[key].name + "'>(" + ssmlVoiceGender[
+                            Number(resjson.voices[key].gender)] + ") " + resjson.voices[key].name.replace(
+                                "cmn-CN-Wavenet-", "") + " </option>");
+                    }
+                }
+            }
+            $("#en_US > option:nth-child(4)").attr("selected", "true");
+            changeSubButton("Speak it!", true);
+        }
+    });
     $("#sub").click(function () {
         if ($("#t").val().length <= 0) {
             msgbox("Type in something first!");
