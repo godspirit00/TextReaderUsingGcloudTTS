@@ -3,7 +3,6 @@ var jsonQueue = [];
 var audioQueue = [];
 var playerPointer = -1;
 var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-var abQueue = [];
 var staticAudio = [];
 
 function isChinese(str) {
@@ -98,10 +97,15 @@ function process() {
     }
 
     if (text.indexOf("<voice name=") != -1) {
-        var findVoice = new RegExp(/(<voice name[A-z 0-9='"][^>]*?>)/gmi);
+        let findVoice = new RegExp(/(<voice name[A-z 0-9='"][^>]*?>)/gmi);
         text = text.replace(findVoice, "\n$1\n");
         findVoice = new RegExp(/(<\/voice>)/gmi);
         text = text.replace(findVoice, "\n$1\n");
+    }
+
+    if (text.indexOf("<break time=") != -1) {
+        let findBreak = new RegExp(/(<break time='[0-9ms]+'[ ]*?\/>)/gmi);
+        text = text.replace(findBreak, "\n$1\n");
     }
 
     if (text.indexOf("<audio src=") != -1 || text.indexOf("<audio id=") != -1) {
@@ -213,13 +217,15 @@ function process() {
 }
 
 function makeJSON(text, voice, rate) {
+    let findBreak;
     if (voice == -1) {
         var json = "{ \"audio\" : \"" + text + "\" }";
     } else if (voice == -2) {
         var json = "{ \"audioid\" : \"" + text + "\" }";
-    } else if (text.trim().replace(/<break time='([0-9 ])(s|ms)' \/>/, "") == "" && text.indexOf("<break time=") != -1) {  //Synth single-lined <break> with a less expensive voice
-        var json = "{ \"input\": { \"ssml\" : \"<speak> " + text + " </speak>\" }, \"voice\": {\"name\": \"" +
-            "en-US-Standard-B" + "\"}, \"audioConfig\":{\"audioEncoding\": \"OGG\", \"speakingRate\": " + rate + "} }";
+    } else if ((findBreak = /^<break time='([0-9ms]+)'[ ]*?\/>$/.exec(text.trim())) != null) {  //Generate single-lined <break> locally
+        let findSec = /([0-9]+)(ms|s)/.exec(findBreak[1]);
+        let sec = (findSec[2] == "ms" ? findSec[1] / 1000 : findSec[1]);
+        var json = "{ \"break\" : " + sec + " }";
     } else {
         text = text.replace(/"/g, "'");
         text = text.replace(/&/g, " and ");
@@ -411,15 +417,26 @@ function optimizeJSON() {
         if (jsonQueue[i].indexOf("ssml") != -1) {
             let thisjson = JSON.parse(jsonQueue[i]);
             let thistext = thisjson.input.ssml;
-            let thiscontent = (/<speak>([\s\S]+)<\/speak>/.exec(thistext))[1];
-            if (/^<break time='[0-9ms]+' \/>$/.exec(thiscontent.trim()) == null) {
-                if (/<break time='[0-9ms]+' \/>$/.exec(thiscontent.trim()) == null) {
+            if (jsonQueue[i + 1] != undefined) {
+                if (JSON.parse(jsonQueue[i + 1]).break == undefined) {
                     thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
                 }
-            } else {
-                thisjson.voice.name = "en-US-Standard-B";
             }
-            jsonQueue[i] = JSON.stringify(thisjson);
+        }
+    }
+
+    for (let i = 0; i < jsonQueue.length; i++) {
+        let thisjson = JSON.parse(jsonQueue[i]);
+        if (thisjson.break != undefined) {
+            if (jsonQueue[i + 1] != undefined) {
+                let nextjson = JSON.parse(jsonQueue[i + 1]);
+                if (nextjson.break != undefined) {
+                    thisjson.break = Number(thisjson.break) + Number(nextjson.break);
+                    jsonQueue[i] = JSON.stringify(thisjson);
+                    jsonQueue.splice(i + 1, 1);
+                    i--;
+                }
+            }
         }
     }
 
@@ -471,6 +488,9 @@ async function sendReq() {
             } else if (thisjson.repeatLine != undefined) { //Reuse audio for same content
                 audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
                 console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
+            } else if (thisjson.break != undefined) {
+                audioQueue.push(generateBlank(thisjson.break));
+                console.log("Generated blank of " + thisjson.break + "s.");
             } else {
                 let retryTimes = 3;
                 let index;
@@ -547,6 +567,8 @@ async function getVoices() {
 async function joinAudio() {
     var ttlLength = 0;
     var sr;
+    var abQueue = [];
+
     if (audioQueue.length <= 0) {
         msgbox("Speak it at least once first!");
         reject("No audio received yet.");
@@ -588,6 +610,15 @@ async function joinAudio() {
     }
 }
 
+function downloadFile(dl, filename) {
+    let a = document.createElement('a');
+    a.download = (filename == undefined ? new Date().getTime().toString() : filename) + '.wav';
+    a.href = dl;
+    $("body").append(a);
+    a.click();
+    $(a).remove();
+}
+
 async function saveAudio(filename) {
     if (audioQueue.length <= 0) {
         msgbox("Speak it at least once first!");
@@ -602,19 +633,21 @@ async function saveAudio(filename) {
                 });
                 console.log(blob);
                 console.log("Triggering download...");
-                let a = document.createElement('a');
-                a.download = (filename == undefined ? new Date().getTime().toString() : filename) + '.wav';
                 let dl = window.URL.createObjectURL(blob);
-                a.href = dl;
-                $("body").append(a);
-                a.click();
-                $(a).remove();
+                downloadFile(dl, filename);
                 URL.revokeObjectURL(dl);
             });
         } catch (error) {
             msgbox("An error occured when exporting the audio: \n" + error);
-        } finally {
-            $("#saveit").removeAttr("disabled");  //saveit button state change
         }
     }
+}
+
+function generateBlank(length) {
+    let buffer = audioCtx.createBuffer(1, Number(length) * 22050, 22050);
+    let wav = audioBufferToWav(buffer);
+    let blob = new Blob([new DataView(wav)], {
+        type: "audio/wav"
+    });
+    return window.URL.createObjectURL(blob);
 }

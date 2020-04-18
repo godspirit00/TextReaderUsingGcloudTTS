@@ -128,7 +128,6 @@ $("#t").change(function () {
     jsonQueue = [];
     audioQueue = [];
     playerPointer = -1;
-    abQueue = [];
     //Submit button state change
     changeSubButton("Speak it!", true);
     $("#saveit").attr("disabled", "true");  //saveit button state change
@@ -485,7 +484,11 @@ $("#inputfilenamedlg").on("shown.bs.modal", () => {
 $("#dlgok9").click(() => {
     let filename = $("#filename").val();
     $("#saveit").attr("disabled", "true");  //saveit button state change
-    saveAudio(filename);
+    $("#saveit").html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>&nbsp;&nbsp;Please wait...');
+    saveAudio(filename).then(() => {
+        $("#saveit").removeAttr("disabled");  //saveit button state change
+        $("#saveit").html("Save audio to file");
+    });
 });
 $("#inputfilenamedlg").find("#filename").keypress((event) => {
     if (event.which == 13) {
