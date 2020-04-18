@@ -7,9 +7,10 @@ Google uses groundbreaking research in speech synthesis (WaveNet) and Google's p
 ## Features
 + Uses Google Cloud Text-to-speech Wavenet voices to synthesize
 + Partial SSML support, including the `<voice>` tag that is not supported by Google. This project will handle this tag for you.
-+ Friendly SSML editor. You don't need to type the tags yourself.
++ Friendly SSML editor. The decent-looking and mobile-friendly (thanks to Bootstrap) editor relieves you of typing the tags manually.
 + Dialog Maker to help you transform speaker indicators like "Tony:", "Betty:", etc. to the `<voice>` tags so that these lines will be read by desired voices.
 + Automatically detects lines written in Chinese and have them read by a Chinese voice so that you won't have to manually insert the `<voice>` tags.
++ Save cost. Inserted audio files and `<break>` will be handled locally in your browser.
 + Export the speech to WAV files.
 + Side effects: You can use it as a simple audio joiner, or even an audio-to-wav converter.
 
