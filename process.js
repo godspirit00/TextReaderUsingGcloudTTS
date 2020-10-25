@@ -4,6 +4,8 @@ var audioQueue = [];
 var playerPointer = -1;
 var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 var staticAudio = [];
+var audioRecycled = [];
+var jsonRecycled = [];
 
 function isChinese(str) {
     var patrn = /[\u4E00-\u9FA5]|[\uFE30-\uFFA0]/gi;
@@ -149,6 +151,7 @@ function process() {
     let repeatCount = 1;
     let tempVoice = "";
     let tempRate = "";
+    let tempPitch = 0;
 
     for (let i = 0; i < paras.length; i++) {
         if (paras[i].trim() != "") //not blank
@@ -158,10 +161,12 @@ function process() {
                     console.log("A voice tag for multi-line defines voice " + $(this).attr("name"));
                     tempVoice = $(this).attr("name");
                     tempRate = $(this).attr("rate") != undefined ? $(this).attr("rate") : "";
+                    tempPitch = $(this).attr("pitch") != undefined ? $(this).attr("pitch") : 0;
                 });
             } else if (paras[i].indexOf("</voice>") != -1) {
                 tempVoice = "";
                 tempRate = "";
+                tempPitch = 0;
             } else if (/(<audio src[^>])/.test(paras[i])) {
                 $("<xml>" + paras[i] + "</xml>").find('audio').each(function () {
                     let t = $(this).attr("src");
@@ -203,7 +208,7 @@ function process() {
                     makeJSON(paras[i], defaultVoice, defaultRate);
                     console.log(paras[i] + " will be read by defaultVoice.");
                 } else {
-                    makeJSON(paras[i], tempVoice, tempRate == "" ? defaultRate : tempRate);
+                    makeJSON(paras[i], tempVoice, tempRate == "" ? defaultRate : tempRate, tempPitch != 0 ? tempPitch : undefined);
                     console.log(paras[i] + " will be read by " + tempVoice + ".");
                 }
             }
@@ -216,7 +221,7 @@ function process() {
     return true;
 }
 
-function makeJSON(text, voice, rate) {
+function makeJSON(text, voice, rate, pitch) {
     let findBreak;
     if (voice == -1) {
         var json = "{ \"audio\" : \"" + text + "\" }";
@@ -231,7 +236,7 @@ function makeJSON(text, voice, rate) {
         text = text.replace(/&/g, " and ");
         text = text.replace(/	/g, " ");
         var json = "{ \"input\": { \"ssml\" : \"<speak> " + text + " </speak>\" }, \"voice\": {\"name\": \"" +
-            voice + "\"}, \"audioConfig\":{\"audioEncoding\": \"OGG\", \"speakingRate\": " + rate + "} }";
+            voice + "\"}, \"audioConfig\":{\"audioEncoding\": \"OGG\", \"speakingRate\": " + rate + (pitch == undefined ? "" : ",\"pitch\":" + pitch) + "} }";
     }
     console.log("JSON:" + json);
     jsonQueue.push(json);
@@ -420,6 +425,7 @@ function optimizeJSON() {
             if (jsonQueue[i + 1] != undefined) {
                 if (JSON.parse(jsonQueue[i + 1]).break == undefined) {
                     thisjson.input.ssml = thistext.replace("</speak>", "<break strength='medium'/></speak>");
+                    jsonQueue[i] = JSON.stringify(thisjson);
                 }
             }
         }
@@ -458,74 +464,81 @@ async function sendReq() {
     if (jsonQueue.length > 0) {
         console.log("Sending requests to the server.");
         for (let i = 0; i < jsonQueue.length; i++) {
-            let thisjson = JSON.parse(jsonQueue[i]);
-            console.log("Requesting line " + i + "...");
-            if (thisjson.audio != undefined) {
-                console.log("Loading external audio file: " + thisjson.audio);
-                await fetch(thisjson.audio).then(res => {
-                    if (res.ok) {
-                        return res.blob();
-                    } else {
-                        throw new Error(res.statusText);
-                    }
-                }).then(resblob => {
-                    if (resblob != undefined) {
-                        console.log("Audio #" + i + " received.");
-                        audioQueue.push(URL.createObjectURL(resblob));
-                    }
-                }).catch(reason => {
-                    console.log("Unable to load audio file: " + thisjson.audio + ", " + reason);
-                });
-            } else if (thisjson.audioid != undefined) {
-                let targetAudio = staticAudio[Number(thisjson.audioid)];
-                if (targetAudio == undefined) {
-                    console.log("staticAudio #" + thisjson.audioid + " does not exist. Skipping.");
-                    audioQueue.push("");
-                } else {
-                    console.log("Loading staticAudio #" + thisjson.audioid);
-                    audioQueue.push(targetAudio);
-                }
-            } else if (thisjson.repeatLine != undefined) { //Reuse audio for same content
-                audioQueue.push(audioQueue[Number(thisjson.repeatLine)]);
-                console.log("Reusing audio #" + thisjson.repeatLine + " for JSON #" + i);
-            } else if (thisjson.break != undefined) {
-                audioQueue.push(generateBlank(thisjson.break));
-                console.log("Generated blank of " + thisjson.break + "s.");
-            } else {
-                let retryTimes = 3;
-                let index;
-                for (index = 0; index < retryTimes; index++) {
-                    await fetch(serverPrefix + 'speak.php', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: jsonQueue[i]
-                    }).then(res => {
+            if (audioQueue[i] == undefined || audioQueue[i] == "") {
+                let thisjson = JSON.parse(jsonQueue[i]);
+                console.log("Requesting line " + i + "...");
+                if (thisjson.audio != undefined) {
+                    console.log("Loading external audio file: " + thisjson.audio);
+                    await fetch(thisjson.audio).then(res => {
                         if (res.ok) {
-                            return res.text();
+                            return res.blob();
                         } else {
-                            index = 90;
                             throw new Error(res.statusText);
                         }
-                    }).then(restext => {
-                        if (restext.indexOf("data:audio") != -1 && restext != "data:audio/" + thisjson.audioConfig.audioEncoding.toLowerCase() + ";base64,") {
+                    }).then(resblob => {
+                        if (resblob != undefined) {
                             console.log("Audio #" + i + " received.");
-                            audioQueue.push(restext);
-                            index = 99;
+                            if (jsonQueue[i] != undefined) audioQueue[i] = URL.createObjectURL(resblob);
                         }
                     }).catch(reason => {
-                        console.log("Failed to retrieve audio #" + i + ": " + reason + ".");
-                        if (index != 90 && index < retryTimes - 1) console.log("Retrying...");
+                        console.log("Unable to load audio file: " + thisjson.audio + ", " + reason);
                     });
-                    await sleep(3000);
-                }
-                if (index < 99) {
-                    console.error("Failed to retrieve audio #" + i);
+                } else if (thisjson.audioid != undefined) {
+                    let targetAudio = staticAudio[Number(thisjson.audioid)];
+                    if (targetAudio == undefined) {
+                        console.log("staticAudio #" + thisjson.audioid + " does not exist. Skipping.");
+                        audioQueue[i] = "";
+                    } else {
+                        console.log("Loading staticAudio #" + thisjson.audioid);
+                        audioQueue[i] = targetAudio;
+                    }
+                } else if (thisjson.repeatLine != undefined) { //Reuse audio for same content
+                    audioQueue[i] = audioQueue[Number(thisjson.repeatLine)];
+                    console.log("Loading audio #" + thisjson.repeatLine + " for JSON #" + i);
+                } else if (thisjson.break != undefined) {
+                    audioQueue[i] = generateBlank(thisjson.break);
+                    console.log("Generated blank of " + thisjson.break + "s.");
+                } else {
+                    let retryTimes = 3;
+                    let index;
+                    for (index = 0; index < retryTimes; index++) {
+                        await fetch(serverPrefix + 'speak.php', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: jsonQueue[i]
+                        }).then(res => {
+                            if (res.ok) {
+                                return res.text();
+                            } else {
+                                index = 90;
+                                throw new Error(res.statusText);
+                            }
+                        }).then(restext => {
+                            if (restext.indexOf("data:audio") != -1 && restext != "data:audio/" + thisjson.audioConfig.audioEncoding.toLowerCase() + ";base64,") {
+                                console.log("Audio #" + i + " received.");
+                                if (jsonQueue[i] != undefined) audioQueue[i] = restext;
+                                index = 99;
+                            }
+                        }).catch(reason => {
+                            console.log("Failed to retrieve audio #" + i + ": " + reason + ".");
+                            if (index != 90 && index < retryTimes - 1) console.log("Retrying...");
+                        });
+                        await sleep(3000);
+                    }
+                    if (index < 99) {
+                        console.error("Failed to retrieve audio #" + i);
+                    }
                 }
             }
         }
-        if (audioQueue.length != jsonQueue.length) {
+
+        let verifyCount = 0;
+        audioQueue.forEach(() => {
+            verifyCount++;
+        });
+        if (verifyCount < jsonQueue.length) {
             msgbox("Some lines are not synthesized correctly.");
         } else {
             if (audioQueue.length <= 0 || jsonQueue.length <= 0) {
@@ -650,4 +663,39 @@ function generateBlank(length) {
         type: "audio/wav"
     });
     return window.URL.createObjectURL(blob);
+}
+
+function recycleQueues() {
+    if (audioQueue.length > 0) {
+        audioQueue.forEach((v, i) => {
+            if (v != "") {
+                audioRecycled.push(v);
+                jsonRecycled.push(jsonQueue[i]);
+            }
+        });
+        audioQueue = [];
+        jsonQueue = [];
+    }
+}
+
+function reuseAudio(clear) {
+    if (jsonRecycled.length > 0) {
+        for (let index = 0; index < jsonQueue.length; index++) {
+            const element = jsonQueue[index];
+            if (audioQueue[index] == undefined) {
+                for (let j = 0; j < jsonRecycled.length; j++) {
+                    const elem = jsonRecycled[j];
+                    if (elem == element) {
+                        audioQueue[index] = audioRecycled[j];
+                        console.log("Loading recycled Audio #" + j + " for Audio #" + index);
+                    }
+                }
+            }
+
+        }
+    }
+    if (clear == undefined) {
+        audioRecycled = [];
+        jsonRecycled = [];
+    }
 }

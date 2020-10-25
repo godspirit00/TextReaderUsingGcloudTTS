@@ -60,6 +60,7 @@ $(document).ready(function () {
                 changeSubButton("Speak it!", true);
             } else {
                 optimizeJSON();
+                reuseAudio();
                 sendReq();
             }
         } else {
@@ -89,9 +90,9 @@ $(document).ready(function () {
     player.loop = false;
 
     player.addEventListener("ended", () => {
-        if (playerPointer >= audioQueue.length - 1) {
+        if (playerPointer >= audioQueue.length - 1 || audioQueue[playerPointer + 1] == undefined) {
             if (audioQueue.length > 0) {
-                if (audioQueue.length < jsonQueue.length) {
+                if (playerPointer < jsonQueue.length - 1) {
                     changeSubButton('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>&nbsp;&nbsp;Please wait...', false);
                 } else {
                     changeSubButton("Replay", true);
@@ -102,14 +103,18 @@ $(document).ready(function () {
         }
     });
 
-    var docWatch = setInterval(function () {
-        if (audioQueue.length > 0 && playerPointer < audioQueue.length - 1) //To make the audio start playing, audioQueue has to have sth, and playerPointer is -1.
+    setInterval(function () {
+        if (audioQueue.length > 0 && audioQueue[playerPointer + 1] != undefined) //To make the audio start playing, audioQueue has to have sth, and playerPointer is -1.
         {
             if (player.ended || (!player.ended && playerPointer == -1)) {
                 playerPointer++;
-                player.src = audioQueue[playerPointer];
-                console.log("Playing Audio #" + playerPointer);
-                player.play();
+                if (audioQueue[playerPointer] != "") {
+                    player.src = audioQueue[playerPointer];
+                    console.log("Playing Audio #" + playerPointer);
+                    player.play();
+                } else {
+                    console.log("Audio #" + playerPointer + " is empty, skipping.");
+                }
 
                 changeSubButton("Pause", true);
             }
@@ -125,8 +130,7 @@ $(document).ready(function () {
 });
 $("#saveit").attr("disabled", "true");  //saveit button state change
 $("#t").change(function () {
-    jsonQueue = [];
-    audioQueue = [];
+    recycleQueues();
     playerPointer = -1;
     //Submit button state change
     changeSubButton("Speak it!", true);
