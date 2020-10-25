@@ -128,6 +128,13 @@ $(document).ready(function () {
 
     }, 100);
 });
+
+window.onbeforeunload = function () {
+    if ($("#t").val() != "") {
+        return "The input content will be lost. Are you sure to quit?";
+    }
+}
+
 $("#saveit").attr("disabled", "true");  //saveit button state change
 $("#t").change(function () {
     recycleQueues();
